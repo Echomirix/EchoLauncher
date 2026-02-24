@@ -32,8 +32,7 @@ object Component {
         onScreenSelected: (Screen) -> Unit
     ) {
         NavigationBar(
-
-            modifier = Modifier.fillMaxWidth().height(AppConfig.NAVBAR_HEIGHT.dp).background(MaterialTheme.colorScheme.primary)
+            modifier = Modifier.fillMaxWidth().height(AppConfig.NAVBAR_HEIGHT.dp).background(MaterialTheme.colorScheme.surface),
         ) {
             Screen.entries.forEach { s ->
                 NavigationBarItem(
@@ -52,10 +51,10 @@ object Component {
         onMinimize: () -> Unit
     ) {
         WindowDraggableArea(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary),
             content = {
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(AppConfig.TOPBAR_HEIGHT.dp).background(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth().height(AppConfig.TOPBAR_HEIGHT.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End
                 ) {

@@ -16,4 +16,8 @@ object AppConfig {
     const val WINDOW_ROUND_CORNER_RADIUS = 16
     const val TOPBAR_HEIGHT = 48
     const val NAVBAR_HEIGHT = 60
+
+    const val UI_DEFAULT_PADDING = 10
+    const val CARD_DEFAULT_PADDING_HORIZONTAL = 40
+    const val CARD_DEFAULT_PADDING_VERTICAL = 30
 }
