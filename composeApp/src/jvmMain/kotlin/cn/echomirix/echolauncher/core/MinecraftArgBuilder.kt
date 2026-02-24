@@ -1,6 +1,7 @@
 package cn.echomirix.echolauncher.core
 
 import cn.echomirix.echolauncher.core.config.AppConfig
+import cn.echomirix.echolauncher.util.parseLibraryPath
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.io.File
@@ -24,17 +25,22 @@ data class LaunchContext(
         "is_demo_user" to false
     ),
     val resolutionWidth: String = "854",
-    val resolutionHeight: String = "480"
+    val resolutionHeight: String = "480",
+    val isIsolated: Boolean = true, // 核心：默认开启版本隔离！
 ) {
     // ---------------------------------------------------------
     // 核心重构：利用 Kotlin 的动态属性 (get()) 自动推导绝对路径！
     // 外面调用的时候，再也不用传这些恶心人的长字符串了！
     // ---------------------------------------------------------
-    val gameDirectory: String get() = File(minecraftDir).absolutePath
+    val gameDirectory: String get() = if (isIsolated)
+        File(minecraftDir, "versions/$version").absolutePath
+    else
+        File(minecraftDir).absolutePath
     val assetsRoot: String get() = File(minecraftDir, "assets").absolutePath
     val librariesDirectory: String get() = File(minecraftDir, "libraries").absolutePath
-    val nativesDirectory: String get() = File(minecraftDir, "versions/$version/natives").absolutePath
-    val gameJarPath: String get() = File(minecraftDir, "versions/$version/$version.jar").absolutePath
+    val nativesDirectory: String get() = File(minecraftDir, "natives").absolutePath
+    val gameJarPath: String get() = File(minecraftDir, "$version.jar").absolutePath
+    val versionsDirectory: String get() = File(minecraftDir, "versions").absolutePath
 
     override fun toString(): String {
         return "LaunchContext(玩家=$authPlayerName, 版本=$version, 根目录=$minecraftDir)"
@@ -45,16 +51,13 @@ data class LaunchContext(
  * 终极核心：单例解析、一站式生成启动命令
  */
 class MinecraftArgBuilder(
-    versionJsonString: String,
+    private val versionMeta: MinecraftVersionMeta,
     private val context: LaunchContext
 ) {
-    // 灵魂：只在这里解析一次 JSON！
-    private val rootElement: JsonObject = Json.parseToJsonElement(versionJsonString).jsonObject
 
     // 自动从 JSON 里掏出 assetsIndex 的名字，坚决不让外面传！
     private val assetsIndexName: String by lazy {
-        rootElement["assetIndex"]?.jsonObject?.get("id")?.jsonPrimitive?.content
-            ?: throw IllegalStateException("JSON 里连 assetIndex.id 都没有，这破版本怎么加载贴图？")
+        versionMeta.assetIndex["id"]?.jsonPrimitive?.content ?: throw IllegalStateException("缺失 assetIndex.id")
     }
 
     // 内部自己生成的 Classpath 字符串
@@ -72,10 +75,10 @@ class MinecraftArgBuilder(
             "\${assets_index_name}" to assetsIndexName,
             "\${auth_uuid}" to context.authUuid,
             "\${auth_access_token}" to context.authAccessToken,
-            "\${clientid}" to context.launcherName,
+            "\${clientid}" to "null",
             "\${auth_xuid}" to "null",
-            "\${user_type}" to "mojang",
-            "\${version_type}" to "release",
+            "\${user_type}" to "msa",
+            "\${version_type}" to AppConfig.APP_ABBR,
             "\${resolution_width}" to context.resolutionWidth,
             "\${resolution_height}" to context.resolutionHeight,
             "\${natives_directory}" to context.nativesDirectory,
@@ -89,34 +92,26 @@ class MinecraftArgBuilder(
      * 构建最终的启动命令参数列表
      */
     fun build(): List<String> {
-        val arguments = rootElement["arguments"]?.jsonObject
-            ?: throw IllegalArgumentException("你传的 JSON 里连 arguments 都没有，你启动个锤子？")
+        // 直接从 Meta 里拿合并好的参数！不用再操心了！
+        val jvmArgs = parseArgumentList(versionMeta.jvmArgs)
+        val gameArgs = parseArgumentList(versionMeta.gameArgs)
 
-        val jvmArgs = parseArgumentList(arguments["jvm"]?.jsonArray)
-        val gameArgs = parseArgumentList(arguments["game"]?.jsonArray)
-        val mainClass = rootElement["mainClass"]?.jsonPrimitive?.content
-            ?: throw IllegalArgumentException("找不到 mainClass！")
-
-        // 拼接顺序：JVM 参数 -> MainClass -> 游戏参数
-        return jvmArgs + listOf(mainClass) + gameArgs
+        return jvmArgs + listOf(versionMeta.mainClass) + gameArgs
     }
 
     /**
      * 基于已经解析的 rootElement 生成 Classpath
      */
     private fun generateClasspath(): String {
-        val librariesArray = rootElement["libraries"]?.jsonArray
-            ?: throw IllegalArgumentException("JSON 里连 libraries 都没有，你下个锤子的游戏！")
 
         val classpathFiles = mutableListOf<String>()
 
-        for (libElement in librariesArray) {
+        for (libElement in versionMeta.libraries) {
             val libObj = libElement.jsonObject
 
             if (!checkRules(libObj["rules"]?.jsonArray, isLibraryRule = true)) continue
 
-            val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject
-            val pathStr = artifactObj?.get("path")?.jsonPrimitive?.content ?: continue
+            val pathStr = parseLibraryPath(libObj) ?: continue
 
             // 直接用 context.librariesDirectory 拼接
             val absoluteLibFile = File(context.librariesDirectory, pathStr)
@@ -129,7 +124,7 @@ class MinecraftArgBuilder(
         }
 
         // 把游戏本体加进去
-        val absoluteGameJar = File(context.gameJarPath)
+        val absoluteGameJar = File(versionMeta.clientJarPath)
         if (!absoluteGameJar.exists()) {
             throw IllegalStateException("你连游戏本体 ${context.gameJarPath} 都没有，玩空气呢？！")
         }

@@ -7,14 +7,12 @@ import java.net.URL
 import java.security.MessageDigest
 
 class MinecraftDependencyVerifier(
-    private val versionJsonString: String,
+    private val versionMeta: MinecraftVersionMeta,
     private val librariesDirectory: String,
     private val assetsDirectory: String,
-    private val gameJarPath: String,
     private val currentOsName: String = getCurrentOsName(),
     private val currentOsArch: String = getCurrentOsArch()
 ) {
-    private val rootElement = Json.parseToJsonElement(versionJsonString).jsonObject
 
     /**
      * 一键校验并下载所有缺失依赖！
@@ -23,44 +21,40 @@ class MinecraftDependencyVerifier(
         println("[校验] 开始地狱级的文件审查...")
 
         // 1. 校验游戏本体 (Client Jar)
-        val clientDownload = rootElement["downloads"]?.jsonObject?.get("client")?.jsonObject
-        val clientUrl = clientDownload?.get("url")?.jsonPrimitive?.content
-        val clientSha1 = clientDownload?.get("sha1")?.jsonPrimitive?.content
+        val clientUrl = versionMeta.clientDownload?.get("url")?.jsonPrimitive?.content
+        val clientSha1 = versionMeta.clientDownload?.get("sha1")?.jsonPrimitive?.content
         if (clientUrl != null && clientSha1 != null) {
-            verifyOrDownloadFile(File(gameJarPath), clientUrl, clientSha1, "游戏本体")
+            verifyOrDownloadFile(File(versionMeta.clientJarPath), clientUrl, clientSha1, "游戏本体")
         }
+
 
         // 2. 校验依赖库 (Libraries) - 开启疯狂并发模式！
-        val librariesArray = rootElement["libraries"]?.jsonArray
-        if (librariesArray != null) {
-            val libJobs = mutableListOf<Deferred<Unit>>()
-            for (libElement in librariesArray) {
-                val libObj = libElement.jsonObject
+        val libJobs = mutableListOf<Deferred<Unit>>()
+        for (libElement in versionMeta.libraries) {
+            val libObj = libElement.jsonObject
 
-                // 必须过规则！不需要的库我们坚决不下载！
-                if (!checkLibraryRules(libObj["rules"]?.jsonArray)) continue
+            // 必须过规则！不需要的库我们坚决不下载！
+            if (!checkLibraryRules(libObj["rules"]?.jsonArray)) continue
 
-                val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject ?: continue
-                val pathStr = artifactObj["path"]?.jsonPrimitive?.content ?: continue
-                val urlStr = artifactObj["url"]?.jsonPrimitive?.content ?: continue
-                val sha1Str = artifactObj["sha1"]?.jsonPrimitive?.content ?: continue
+            val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject ?: continue
+            val pathStr = artifactObj["path"]?.jsonPrimitive?.content ?: continue
+            val urlStr = artifactObj["url"]?.jsonPrimitive?.content ?: continue
+            val sha1Str = artifactObj["sha1"]?.jsonPrimitive?.content ?: continue
 
-                val targetFile = File(librariesDirectory, pathStr)
+            val targetFile = File(librariesDirectory, pathStr)
 
-                // 协程大军出击！并发下载！
-                libJobs.add(async(Dispatchers.IO) {
-                    verifyOrDownloadFile(targetFile, urlStr, sha1Str, "依赖库: $pathStr")
-                })
-            }
-            // 等待所有库下载完成
-            libJobs.awaitAll()
+            // 协程大军出击！并发下载！
+            libJobs.add(async(Dispatchers.IO) {
+                verifyOrDownloadFile(targetFile, urlStr, sha1Str, "依赖库: $pathStr")
+            })
         }
+        // 等待所有库下载完成
+        libJobs.awaitAll()
 
         // 3. 校验资产索引 (Asset Index)
-        val assetIndexObj = rootElement["assetIndex"]?.jsonObject
-        val assetIndexId = assetIndexObj?.get("id")?.jsonPrimitive?.content
-        val assetIndexUrl = assetIndexObj?.get("url")?.jsonPrimitive?.content
-        val assetIndexSha1 = assetIndexObj?.get("sha1")?.jsonPrimitive?.content
+        val assetIndexId = versionMeta.assetIndex["id"]?.jsonPrimitive?.content
+        val assetIndexUrl = versionMeta.assetIndex["url"]?.jsonPrimitive?.content
+        val assetIndexSha1 = versionMeta.assetIndex["sha1"]?.jsonPrimitive?.content
 
         if (assetIndexId != null && assetIndexUrl != null && assetIndexSha1 != null) {
             val indexFile = File(assetsDirectory, "indexes/$assetIndexId.json")
