@@ -1,53 +1,53 @@
 package cn.echomirix.echolauncher.core
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 enum class LaunchState {
-    IDLE,       // 空闲/等待启动
-    CHECKING,   // 校验与下载依赖中
-    STARTING,   // JVM已启动，等待游戏引擎初始化
-    SUCCESS,    // 捕捉到 Setting user，启动成功
-    ERROR       // 发生异常
+    IDLE,
+    CHECKING,
+    STARTING,
+    SUCCESS,
+    ERROR
 }
 
+data class LaunchStatus(
+    val state: LaunchState = LaunchState.IDLE,
+    val text: String = "等待启动"
+)
+
 object GameManager {
-    // 暴露给 UI 层的响应式状态
-    var currentState by mutableStateOf(LaunchState.IDLE)
+    private val _status = MutableStateFlow(LaunchStatus())
+    val status: StateFlow<LaunchStatus> = _status.asStateFlow()
+
+    @Volatile
+    var activeProcess: Process? = null
         private set
 
-    var statusText by mutableStateOf("等待启动")
-        private set
-
-    var activeProcess: Process? by mutableStateOf(null)
-        private set
-
-    // 专属的后台协程作用域，专门干脏活累活
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var resetJob: Job? = null
 
     fun startGame(ctx: LaunchContext) {
-        if (activeProcess?.isAlive == true) {
-            statusText = "游戏已经在运行中，请勿重复启动"
+        if (activeProcess?.isAlive == true || _status.value.state != LaunchState.IDLE) {
+            updateStatus(LaunchState.ERROR, "游戏正在运行或处于非空闲状态！")
+            // 这种防呆报错，不强制重置，等它自然死亡
+            resetStatusAfterDelay(3000)
             return
-        }                // 1. 实例化终极合并元数据 (它会自动搞定原版/Fabric的继承关系)
-        val versionMeta = MinecraftVersionMeta(
-            targetVersion = ctx.version,
-            versionsDir = File(ctx.versionsDirectory)
-        )
+        }
+
+        resetJob?.cancel()
 
         scope.launch {
             try {
-                // 1. 切换到校验状态
-                withContext(Dispatchers.Main) {
-                    currentState = LaunchState.CHECKING
-                    statusText = "正在扫描和补全依赖文件..."
-                }
+                updateStatus(LaunchState.CHECKING, "正在扫描和补全依赖文件...")
 
-                val jsonFile = File(ctx.gameDirectory, "${ctx.version}.json")
-                val versionJsonString = jsonFile.readText()
+                val versionMeta = MinecraftVersionMeta(
+                    targetVersion = ctx.version,
+                    versionsDir = File(ctx.versionsDirectory)
+                )
 
                 val verifier = MinecraftDependencyVerifier(
                     versionMeta = versionMeta,
@@ -56,75 +56,79 @@ object GameManager {
                 )
                 verifier.verifyAndDownloadAll()
 
-                withContext(Dispatchers.Main) {
-                    statusText = "依赖就绪，正在生成启动参数..."
-                }
+                updateStatus(LaunchState.STARTING, "依赖就绪，正在唤醒 JVM...")
+
                 val args = MinecraftArgBuilder(versionMeta, ctx).build()
                 val command = mutableListOf("java").apply { addAll(args) }
-
-                // 2. 切换到启动中状态
-                withContext(Dispatchers.Main) {
-                    statusText = "正在唤醒 JVM，等待游戏窗口渲染..."
-                    currentState = LaunchState.STARTING
-                }
-
-//                println("[Debug] 启动命令: ${command.joinToString(" ")}")
 
                 val process = ProcessBuilder(command)
                     .directory(File(ctx.gameDirectory))
                     .redirectErrorStream(true)
                     .start()
 
-                withContext(Dispatchers.Main) {
-                    activeProcess = process
-                }
+                activeProcess = process
 
-                // 3. 在独立协程里死盯日志流！
+                updateStatus(LaunchState.STARTING, "正在等待游戏窗口...")
+
+                // 死盯日志流
                 launch(Dispatchers.IO) {
+                    var isWaitingForSuccess = true
+
                     process.inputStream.bufferedReader().useLines { lines ->
                         lines.forEach { line ->
                             println("[MC Log] $line")
+                            if (isWaitingForSuccess && line.contains("Reloading ResourceManager")) {
+                                isWaitingForSuccess = false
+                                updateStatus(LaunchState.SUCCESS, "游戏启动成功！")
 
-                            if (currentState == LaunchState.STARTING && line.contains("[Render thread/INFO]: Reloading ResourceManager")) {
-                                launch(Dispatchers.Main) {
-                                    currentState = LaunchState.SUCCESS
-                                    statusText = "游戏启动成功！即将返回..."
-                                    // 停留3秒让玩家看清楚成功提示，然后深藏功与名
-                                    delay(3000)
-                                    currentState = LaunchState.IDLE
-                                    statusText = ""
-                                }
+                                // 成功启动后，进程绝对是活的！必须 forceReset = true 强行把 UI 切回 IDLE！
+                                resetStatusAfterDelay(4000, forceReset = true)
                             }
                         }
                     }
 
-                    // 进程死亡后的善后工作
+                    // 进程自然死亡或被强制杀死
                     val exitCode = process.waitFor()
-                    withContext(Dispatchers.Main) {
-                        if (activeProcess == process) {
-                            activeProcess = null
-                            currentState = LaunchState.IDLE
-                            statusText = "游戏已退出 (代码: $exitCode)"
-                        }
-                    }
+                    activeProcess = null
+                    // 进程死透了，直接重置
+                    updateStatus(LaunchState.IDLE, "游戏已退出 (Exit Code: $exitCode)")
                 }
+
             } catch (e: Exception) {
                 e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    currentState = LaunchState.ERROR
-                    statusText = "启动失败: ${e.message}"
-                    delay(4000)
-                    currentState = LaunchState.IDLE
-                    statusText = "等待启动"
-                }
+                activeProcess = null
+                updateStatus(LaunchState.ERROR, "启动异常: ${e.message ?: "未知错误"}")
+                // 崩溃状态，不用强行重置，反正 activeProcess 已经是 null 了
+                resetStatusAfterDelay(5000)
             }
         }
     }
 
     fun killGame() {
-        activeProcess?.destroy()
+        activeProcess?.let {
+            if (it.isAlive) {
+                it.destroy()
+                updateStatus(LaunchState.IDLE, "已强行拔管，终止进程")
+            }
+        }
         activeProcess = null
-        currentState = LaunchState.IDLE
-        statusText = "已强制结束进程"
+    }
+
+    private fun updateStatus(newState: LaunchState, newText: String) {
+        _status.value = LaunchStatus(newState, newText)
+    }
+
+    /**
+     * @param forceReset 只有在需要【无视进程死活强行切回UI】时传 true
+     */
+    private fun resetStatusAfterDelay(timeMillis: Long, forceReset: Boolean = false) {
+        resetJob?.cancel()
+        resetJob = scope.launch {
+            delay(timeMillis)
+            // 看到没？！加了 forceReset！要不然你的 isAlive 永远卡死你自己！
+            if (forceReset || activeProcess?.isAlive != true) {
+                updateStatus(LaunchState.IDLE, "等待启动")
+            }
+        }
     }
 }

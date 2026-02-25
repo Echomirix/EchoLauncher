@@ -7,8 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,6 +18,10 @@ import cn.echomirix.echolauncher.core.GameManager
 import cn.echomirix.echolauncher.core.LaunchContext
 import cn.echomirix.echolauncher.core.LaunchState
 import cn.echomirix.echolauncher.core.config.AppConfig
+import cn.echomirix.echolauncher.core.version.LocalVersion
+import cn.echomirix.echolauncher.core.version.VersionManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 
 interface IndexedScreen : Screen {
@@ -31,25 +34,44 @@ class HomeScreen : IndexedScreen {
     @Composable
     override fun Content() {
         // 观察全局启动状态
-        val launchState = GameManager.currentState
-        val statusText = GameManager.statusText
+        val launchStatus by GameManager.status.collectAsState()
+        val launchState = launchStatus.state
+        val statusText = launchStatus.text
         val isGameRunning = GameManager.activeProcess?.isAlive == true
 
-        // 构造你的上下文
-        val ctx = remember {
+        // 统一写死根目录，以后你再抽到全局配置或者Settings里去
+        val minecraftDir = "D:/Project/Java/EchoLauncher/.minecraft"
+
+        // ---------------- 核心新增：版本状态管理 ----------------
+        var versions by remember { mutableStateOf<List<LocalVersion>>(emptyList()) }
+        var selectedVersion by remember { mutableStateOf<LocalVersion?>(null) }
+        var isVersionMenuExpanded by remember { mutableStateOf(false) }
+
+        // 进页面立刻去异步扫盘！别特么卡主线程！
+        LaunchedEffect(minecraftDir) {
+            withContext(Dispatchers.IO) {
+                val scanned = VersionManager.scanLocalVersions(minecraftDir)
+                versions = scanned
+                if (scanned.isNotEmpty() && selectedVersion == null) {
+                    selectedVersion = scanned.first()
+                }
+            }
+        }
+
+        // 构造你的上下文 (用下拉框动态选中的！)
+        val ctx = remember(selectedVersion) {
             LaunchContext(
                 authPlayerName = "Echomirix",
                 authUuid = "123e4567-e89b-12d3-a456-426614174000",
                 authAccessToken = "0",
-                version = "1.20.2-Fabric 0.18.4",
-                minecraftDir = "D:/Project/Java/EchoLauncher/.minecraft"
+                version = selectedVersion?.id ?: "1.20.1",
+                minecraftDir = minecraftDir
             )
         }
 
+        // 最外层的 Box，为了能让关机按钮悬浮在所有东西的最上面！
         Box(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-            ) {
+            Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 // =============== 左侧：操作卡片区域 ===============
                 Box(
                     modifier = Modifier
@@ -67,12 +89,10 @@ class HomeScreen : IndexedScreen {
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
                         )
                     ) {
-                        // 还原你心心念念的 SpaceBetween 上下结构！
                         Column(
-                            modifier = Modifier.fillMaxSize().padding(AppConfig.UI_DEFAULT_PADDING.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier.fillMaxSize().padding(AppConfig.UI_DEFAULT_PADDING.dp)
                         ) {
-                            // --- 顶部：玩家信息区域 (死死钉住，绝对不参与动画) ---
+                            // --- 1. 顶部：玩家信息区域 (死死钉住，不参与动画) ---
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
@@ -93,7 +113,10 @@ class HomeScreen : IndexedScreen {
                                 }
                             }
 
-                            // --- 底部：带动画的状态机区域 ---
+                            // --- 2. 灵魂弹簧：用 Spacer 把下面的内容狠狠压在底部！ ---
+                            Spacer(modifier = Modifier.weight(1f))
+
+                            // --- 3. 底部：该死的动画状态机！ ---
                             AnimatedContent(
                                 targetState = launchState,
                                 transitionSpec = {
@@ -104,31 +127,79 @@ class HomeScreen : IndexedScreen {
                                 modifier = Modifier.fillMaxWidth()
                             ) { state ->
                                 when (state) {
-                                    // 状态1：空闲，显示版本信息和启动按钮
-                                    LaunchState.IDLE -> {
+                                    // 状态A：闲置或报错 (展示下拉框和启动按钮)
+                                    LaunchState.IDLE, LaunchState.ERROR -> {
                                         Column(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
-                                            Surface(
-                                                onClick = { /* TODO: 弹出版本选择菜单 */ },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = MaterialTheme.colorScheme.surface
-                                            ) {
-                                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(Icons.Rounded.VideogameAsset, contentDescription = "Version Icon", tint = MaterialTheme.colorScheme.primary)
-                                                    Spacer(modifier = Modifier.width(16.dp))
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Text("Fabric 1.20.1", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                                        Text("1.20.1", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            // 报错提示
+                                            if (state == LaunchState.ERROR) {
+                                                Text(
+                                                    text = statusText,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+
+                                            // 版本信息卡片 + 下拉菜单组合
+                                            Box(modifier = Modifier.fillMaxWidth()) {
+                                                Surface(
+                                                    onClick = { if (versions.isNotEmpty()) isVersionMenuExpanded = true },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = MaterialTheme.colorScheme.surface
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(Icons.Rounded.VideogameAsset, contentDescription = "Version Icon", tint = MaterialTheme.colorScheme.primary)
+                                                        Spacer(modifier = Modifier.width(16.dp))
+
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = selectedVersion?.id ?: if (versions.isEmpty()) "未找到版本" else "加载中...",
+                                                                style = MaterialTheme.typography.titleSmall,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                            Text(
+                                                                text = selectedVersion?.type ?: "请确保 versions 目录下有文件",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+
+                                                        IconButton(onClick = { /* TODO: 版本设置 */ }) {
+                                                            Icon(Icons.Rounded.Settings, contentDescription = "设置")
+                                                        }
                                                     }
-                                                    IconButton(onClick = { /* TODO: 版本设置 */ }) {
-                                                        Icon(Icons.Rounded.Settings, contentDescription = "设置")
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = isVersionMenuExpanded,
+                                                    onDismissRequest = { isVersionMenuExpanded = false },
+                                                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                                                ) {
+                                                    versions.forEach { ver ->
+                                                        DropdownMenuItem(
+                                                            text = {
+                                                                Text(
+                                                                    text = ver.id,
+                                                                    fontWeight = if (ver.id == selectedVersion?.id) FontWeight.Bold else FontWeight.Normal,
+                                                                    color = if (ver.id == selectedVersion?.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                                )
+                                                            },
+                                                            onClick = {
+                                                                selectedVersion = ver
+                                                                isVersionMenuExpanded = false
+                                                            }
+                                                        )
                                                     }
                                                 }
                                             }
 
+                                            // 启动按钮
                                             Button(
                                                 onClick = { GameManager.startGame(ctx) },
                                                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -141,50 +212,41 @@ class HomeScreen : IndexedScreen {
                                         }
                                     }
 
-                                    // 状态2：校验与启动中，显示转圈圈
+                                    // 状态B：校验中或启动中 (展示圈圈)
                                     LaunchState.CHECKING, LaunchState.STARTING -> {
                                         Column(
-                                            modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp),
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
                                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                            Spacer(Modifier.height(24.dp))
-                                            Text(statusText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                                            Text(
+                                                text = statusText,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
                                         }
                                     }
 
-                                    // 状态3：启动成功，显示绿勾
+                                    // 状态C：启动成功 (展示绿色大勾)
                                     LaunchState.SUCCESS -> {
                                         Column(
-                                            modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp),
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
-                                            Icon(Icons.Rounded.CheckCircle, contentDescription = "Success", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
-                                            Spacer(Modifier.height(16.dp))
-                                            Text(statusText, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                        }
-                                    }
-
-                                    // 状态4：异常报错，显示返回按钮
-                                    LaunchState.ERROR -> {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Text(statusText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                            Button(
-                                                onClick = { GameManager.killGame() },
-                                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                            ) {
-                                                Icon(Icons.Rounded.Refresh, contentDescription = "Retry")
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("返回重试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            }
+                                            Icon(
+                                                imageVector = Icons.Rounded.CheckCircle,
+                                                contentDescription = "Success",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(64.dp)
+                                            )
+                                            Text(
+                                                text = statusText,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 }
@@ -206,13 +268,14 @@ class HomeScreen : IndexedScreen {
                 }
             }
 
-            // =============== 右下角：全局悬浮的关机按钮 ===============
+            // =============== 终极武器：全局悬浮的关机按钮 ===============
+            // 只要进程活着，这个红色按钮就会像死神一样飘在界面右下角！
             if (isGameRunning) {
                 FloatingActionButton(
                     onClick = { GameManager.killGame() },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 32.dp, bottom = 32.dp),
+                        .padding(end = 48.dp, bottom = 48.dp),
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError
                 ) {
