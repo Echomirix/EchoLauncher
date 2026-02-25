@@ -84,24 +84,38 @@ class MinecraftArgBuilder(
      * 构建最终的启动命令参数列表
      */
     fun build(): List<String> {
+        val hasModernArgs = versionMeta.jvmArgs.isNotEmpty() || versionMeta.gameArgs.isNotEmpty()
+        val hasLegacyArgs = !versionMeta.minecraftArguments.isNullOrBlank()
+
         val jvmArgs = mutableListOf<String>()
         val gameArgs = mutableListOf<String>()
 
-        // ！！！核心修复：识别并兼容 1.12.2 古墓派版本 ！！！
-        if (versionMeta.jvmArgs.isEmpty() && versionMeta.gameArgs.isEmpty() && versionMeta.minecraftArguments != null) {
-            // 手动注入基础保命 JVM 参数 (没有这些 1.12.2 绝对起不来！)
-            jvmArgs.add("-Djava.library.path=${context.nativesDirectory}")
-            jvmArgs.add("-cp")
-            jvmArgs.add(generatedClasspath)
-            jvmArgs.add("-Xmx2G") // 稍微给点内存，免得瞬间崩盘
+        when {
+            hasModernArgs -> {
+                // 现代版本 (1.13+) 正常 rules 解析
+                jvmArgs.addAll(parseArgumentList(versionMeta.jvmArgs))
+                gameArgs.addAll(parseArgumentList(versionMeta.gameArgs))
+            }
 
-            // 按空格切分那条老旧的字符串，并挨个替换宏
-            val legacyArgs = versionMeta.minecraftArguments.split(" ")
-            gameArgs.addAll(legacyArgs.map { replaceMacros(it) })
-        } else {
-            // 现代版本 (1.13+) 走正常的数组解析逻辑
-            jvmArgs.addAll(parseArgumentList(versionMeta.jvmArgs))
-            gameArgs.addAll(parseArgumentList(versionMeta.gameArgs))
+            hasLegacyArgs -> {
+                // 远古版本 (≤1.12.2) 没有 arguments，对付那条 minecraftArguments 字符串
+                // 手搓 JVM 核心参数：缺哪条，游戏直接跪
+                jvmArgs += listOf(
+                    "-Djava.library.path=${context.nativesDirectory}",
+                    "-cp",
+                    generatedClasspath,
+                    "-Xmx2G"
+                )
+
+                // minecraftArguments 是一整条字符串，空格切分后做宏替换
+                val legacyArgs = versionMeta.minecraftArguments
+                    .split(' ')
+                    .filter { it.isNotBlank() }
+                    .map { replaceMacros(it) }
+                gameArgs.addAll(legacyArgs)
+            }
+
+            else -> throw IllegalStateException("既没有 arguments 也没有 minecraftArguments，你的版本 JSON 烂透了。")
         }
 
         return jvmArgs + listOf(versionMeta.mainClass) + gameArgs

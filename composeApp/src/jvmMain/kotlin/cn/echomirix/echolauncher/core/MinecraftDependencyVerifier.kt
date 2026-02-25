@@ -1,11 +1,24 @@
 package cn.echomirix.echolauncher.core
 
+import cn.echomirix.echolauncher.util.parseLibraryPath
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import java.io.File
 import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipFile
+
+
+private data class DownloadInfo(
+    val path: String,
+    val url: String,
+    val sha1: String? = null,
+    val sha256: String? = null,
+    val sha512: String? = null,
+    val md5: String? = null,
+    val size: Long? = null
+)
+
 
 class MinecraftDependencyVerifier(
     private val versionMeta: MinecraftVersionMeta,
@@ -40,33 +53,36 @@ class MinecraftDependencyVerifier(
 
             // 必须过规则！
             if (!checkLibraryRules(libObj["rules"]?.jsonArray)) continue
+            val nativesObj = libObj["natives"]?.jsonObject
 
-            // 【线路A】：下载普通 Java 库 (artifact)
-            val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject
-            if (artifactObj != null) {
-                val pathStr = artifactObj["path"]?.jsonPrimitive?.content
-                val urlStr = artifactObj["url"]?.jsonPrimitive?.content
-                val sha1Str = artifactObj["sha1"]?.jsonPrimitive?.content
-                if (pathStr != null && urlStr != null && sha1Str != null) {
-                    val targetFile = File(librariesDirectory, pathStr)
+            if (nativesObj == null) {
+                val info = extractDownloadInfo(libObj) ?: continue
+                val targetFile = File(librariesDirectory, info.path)
+                targetFile.parentFile?.mkdirs()
+
+                if (!targetFile.exists()) {
+                    println("[下载] ${info.url}")
                     libJobs.add(async(Dispatchers.IO) {
-                        verifyOrDownloadFile(targetFile, urlStr, sha1Str, "依赖库: $pathStr")
+                        downloadFile(info.url, targetFile)
+                        info.verify(targetFile)
                     })
                 }
             }
 
+
             // 【线路B】：挖掘并下载 Native 库！(你落下的天坑！)
-            val nativesObj = libObj["natives"]?.jsonObject
+
             if (nativesObj != null) {
                 val rawClassifier = nativesObj[currentOsName]?.jsonPrimitive?.content
                 if (rawClassifier != null) {
                     // Mojang 喜欢把 32/64 位写成 ${arch}
-                    val classifierKey = rawClassifier.replace("\${arch}", if (currentOsArch == "x86") "32" else "64")
+                    val classifierKey = rawClassifier.replace($$"${arch}", if (currentOsArch == "x86") "32" else "64")
                     val classifierObj = libObj["downloads"]?.jsonObject?.get("classifiers")?.jsonObject?.get(classifierKey)?.jsonObject
 
                     if (classifierObj != null) {
                         val pathStr = classifierObj["path"]?.jsonPrimitive?.content
                         val urlStr = classifierObj["url"]?.jsonPrimitive?.content
+                        println("[下载] Native库 (${classifierKey}): $urlStr")
                         val sha1Str = classifierObj["sha1"]?.jsonPrimitive?.content
                         if (pathStr != null && urlStr != null && sha1Str != null) {
                             val targetFile = File(librariesDirectory, pathStr)
@@ -97,6 +113,72 @@ class MinecraftDependencyVerifier(
         }
 
         println("[校验] 所有依赖准备就绪！允许放行！")
+    }
+
+    private fun extractDownloadInfo(libObj: JsonObject): DownloadInfo? {
+        val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject
+        val pathFromArtifact = artifactObj?.get("path")?.jsonPrimitive?.content
+        val urlFromArtifact = artifactObj?.get("url")?.jsonPrimitive?.content
+        val nameStr = libObj["name"]?.jsonPrimitive?.content
+
+        // 先试标准 artifact
+        if (pathFromArtifact != null && urlFromArtifact != null) {
+            return DownloadInfo(
+                path = pathFromArtifact,
+                url = urlFromArtifact,
+                sha1 = artifactObj["sha1"]?.jsonPrimitive?.content,
+                sha256 = artifactObj["sha256"]?.jsonPrimitive?.content,
+                sha512 = artifactObj["sha512"]?.jsonPrimitive?.content,
+                md5 = artifactObj["md5"]?.jsonPrimitive?.content,
+                size = artifactObj["size"]?.jsonPrimitive?.longOrNull
+            )
+        }
+
+        // 兜底：Fabric/Forge 自带 Maven 坐标 + url
+        if (nameStr != null) {
+            val path = parseLibraryPath(libObj) ?: return null
+            val base = libObj["url"]?.jsonPrimitive?.content ?: "https://libraries.minecraft.net/"
+            val url = if (base.endsWith("/")) "$base$path" else "$base/$path"
+            return DownloadInfo(
+                path = path,
+                url = url,
+                sha1 = libObj["sha1"]?.jsonPrimitive?.content,
+                sha256 = libObj["sha256"]?.jsonPrimitive?.content,
+                sha512 = libObj["sha512"]?.jsonPrimitive?.content,
+                md5 = libObj["md5"]?.jsonPrimitive?.content,
+                size = libObj["size"]?.jsonPrimitive?.longOrNull
+            )
+        }
+        return null
+    }
+
+    private fun DownloadInfo.verify(file: File) {
+        fun check(expected: String?, actual: () -> String): Boolean {
+            if (expected.isNullOrBlank()) return true
+            return expected.equals(actual(), ignoreCase = true)
+        }
+        if (!check(sha1) { calculateSha1(file) }) throw IllegalStateException("哈希校验失败: $path (sha1)")
+        if (!check(sha256) { calculateSha256(file) }) throw IllegalStateException("哈希校验失败: $path (sha256)")
+        if (!check(sha512) { calculateSha512(file) }) throw IllegalStateException("哈希校验失败: $path (sha512)")
+        if (!check(md5) { calculateMd5(file) }) throw IllegalStateException("哈希校验失败: $path (md5)")
+        size?.let { if (file.length() != it) throw IllegalStateException("文件尺寸不符: $path") }
+    }
+
+    private fun calculateSha1(file: File): String = digest(file, "SHA-1")
+    private fun calculateSha256(file: File): String = digest(file, "SHA-256")
+    private fun calculateSha512(file: File): String = digest(file, "SHA-512")
+    private fun calculateMd5(file: File): String = digest(file, "MD5")
+
+    private fun digest(file: File, algo: String): String {
+        val digest = MessageDigest.getInstance(algo)
+        file.inputStream().use { fis ->
+            val buffer = ByteArray(8192)
+            var read: Int
+            while (fis.read(buffer).also { read = it } != -1) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /**
@@ -182,18 +264,6 @@ class MinecraftDependencyVerifier(
             targetFile.delete()
             throw e
         }
-    }
-
-    private fun calculateSha1(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-1")
-        file.inputStream().use { fis ->
-            val buffer = ByteArray(8192)
-            var read: Int
-            while (fis.read(buffer).also { read = it } != -1) {
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun checkLibraryRules(rulesArray: JsonArray?): Boolean {

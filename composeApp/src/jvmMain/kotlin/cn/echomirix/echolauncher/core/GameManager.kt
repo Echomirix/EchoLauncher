@@ -73,27 +73,29 @@ object GameManager {
 
                 println("启动命令: ${command.joinToString(" ")}")
 
-                // 死盯日志流
                 launch(Dispatchers.IO) {
-                    var isWaitingForSuccess = true
+                    val successMarkers = listOf("Reloading ResourceManager", "Setting user:")
+
+                    // handler 会在命中后被换成纯打印函数
+                    var handler: (String) -> Unit
+
+                    handler = { line ->
+                        println("[MC Log] $line")
+                        if (successMarkers.any { marker -> line.contains(marker) }) {
+                            updateStatus(LaunchState.SUCCESS, "游戏启动成功！")
+                            resetStatusAfterDelay(4000, forceReset = true)
+                            // 命中一次后换成纯打印，彻底零匹配开销
+                            handler = { pure -> println("[MC Log] $pure") }
+                        }
+                    }
 
                     process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { line ->
-                            println("[MC Log] $line")
-                            if (isWaitingForSuccess && line.contains("Reloading ResourceManager")) {
-                                isWaitingForSuccess = false
-                                updateStatus(LaunchState.SUCCESS, "游戏启动成功！")
-
-                                // 成功启动后，进程绝对是活的！必须 forceReset = true 强行把 UI 切回 IDLE！
-                                resetStatusAfterDelay(4000, forceReset = true)
-                            }
-                        }
+                        lines.forEach { line -> handler(line) }
                     }
 
                     // 进程自然死亡或被强制杀死
                     val exitCode = process.waitFor()
                     activeProcess = null
-                    // 进程死透了，直接重置
                     updateStatus(LaunchState.IDLE, "游戏已退出 (Exit Code: $exitCode)")
                 }
 
