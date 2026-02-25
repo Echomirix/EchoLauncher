@@ -11,13 +11,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.screen.Screen
 import cn.echomirix.echolauncher.core.GameManager
 import cn.echomirix.echolauncher.core.LaunchContext
 import cn.echomirix.echolauncher.core.LaunchState
+import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.core.config.AppConfig
+import cn.echomirix.echolauncher.core.config.ConfigManager
 import cn.echomirix.echolauncher.core.version.LocalVersion
 import cn.echomirix.echolauncher.core.version.VersionManager
 import kotlinx.coroutines.Dispatchers
@@ -39,21 +42,23 @@ class HomeScreen : IndexedScreen {
         val statusText = launchStatus.text
         val isGameRunning = GameManager.activeProcess?.isAlive == true
 
+        val appConfig by ConfigManager.configFlow.collectAsState()
+
         // 统一写死根目录，以后你再抽到全局配置或者Settings里去
         val minecraftDir = "D:/Project/Java/EchoLauncher/.minecraft"
 
-        // ---------------- 核心新增：版本状态管理 ----------------
         var versions by remember { mutableStateOf<List<LocalVersion>>(emptyList()) }
         var selectedVersion by remember { mutableStateOf<LocalVersion?>(null) }
         var isVersionMenuExpanded by remember { mutableStateOf(false) }
+        var showAccountDialog by remember { mutableStateOf(false) }
 
-        // 进页面立刻去异步扫盘！别特么卡主线程！
         LaunchedEffect(minecraftDir) {
             withContext(Dispatchers.IO) {
                 val scanned = VersionManager.scanLocalVersions(minecraftDir)
                 versions = scanned
+                val savedId = appConfig.selectedVersionId
                 if (scanned.isNotEmpty() && selectedVersion == null) {
-                    selectedVersion = scanned.first()
+                    selectedVersion = scanned.find { it.id == savedId } ?: scanned.firstOrNull()
                 }
             }
         }
@@ -61,10 +66,10 @@ class HomeScreen : IndexedScreen {
         // 构造你的上下文 (用下拉框动态选中的！)
         val ctx = remember(selectedVersion) {
             LaunchContext(
-                authPlayerName = "Echomirix",
+                authPlayerName = appConfig.playerName,
                 authUuid = "123e4567-e89b-12d3-a456-426614174000",
                 authAccessToken = "0",
-                version = selectedVersion?.id ?: "1.20.1",
+                version = selectedVersion?.id ?: "null",
                 minecraftDir = minecraftDir
             )
         }
@@ -105,10 +110,24 @@ class HomeScreen : IndexedScreen {
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Echomirix", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("离线账户", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        text = appConfig.playerName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    val typeText = when(appConfig.accountType) {
+                                        AccountType.OFFLINE -> "离线账户"
+                                        AccountType.LITTLESKIN -> "LittleSkin"
+                                        else -> "Microsoft"
+                                    }
+                                    Text(
+                                        text = typeText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                                IconButton(onClick = { /* TODO: 切换账号 */ }) {
+                                IconButton(onClick = { showAccountDialog = true }) {
                                     Icon(Icons.Rounded.SwitchAccount, contentDescription = "切换账号")
                                 }
                             }
@@ -193,6 +212,9 @@ class HomeScreen : IndexedScreen {
                                                             onClick = {
                                                                 selectedVersion = ver
                                                                 isVersionMenuExpanded = false
+                                                                ConfigManager.updateConfig {
+                                                                    copy(selectedVersionId = ver.id)
+                                                                }
                                                             }
                                                         )
                                                     }
@@ -285,8 +307,89 @@ class HomeScreen : IndexedScreen {
                     )
                 }
             }
+        if (showAccountDialog) {
+            var tempName by remember { mutableStateOf(appConfig.playerName) }
+            var tempType by remember { mutableStateOf(appConfig.accountType) }
+            var accountMenuExpanded by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { showAccountDialog = false },
+                title = { Text("账号切换与管理", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        // 下拉菜单选类型
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = when(tempType) { AccountType.OFFLINE -> "离线模式"; AccountType.LITTLESKIN -> "LittleSkin (TODO)"; else -> "Microsoft (TODO)" },
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("登录方式") },
+                                modifier = Modifier.fillMaxWidth(),
+                                trailingIcon = {
+                                    IconButton(onClick = { accountMenuExpanded = true }) {
+                                        Icon(Icons.Rounded.ArrowDropDown, contentDescription = "展开")
+                                    }
+                                }
+                            )
+                            // 用透明遮罩拦截点击，防软键盘
+                            Surface(
+                                modifier = Modifier.matchParentSize(),
+                                color = Color.Transparent,
+                                onClick = { accountMenuExpanded = true }
+                            ) {}
+
+                            DropdownMenu(
+                                expanded = accountMenuExpanded,
+                                onDismissRequest = { accountMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(text = { Text("离线模式") }, onClick = { tempType = AccountType.OFFLINE; accountMenuExpanded = false })
+                                DropdownMenuItem(text = { Text("LittleSkin (TODO)") }, onClick = { tempType = AccountType.LITTLESKIN; accountMenuExpanded = false })
+                                DropdownMenuItem(text = { Text("Microsoft (TODO)") }, onClick = { tempType = AccountType.MICROSOFT; accountMenuExpanded = false })
+                            }
+                        }
+
+                        // 离线模式专属：输入玩家ID
+                        if (tempType == AccountType.OFFLINE) {
+                            OutlinedTextField(
+                                value = tempName,
+                                onValueChange = { tempName = it },
+                                label = { Text("离线玩家 ID") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text(
+                                text = "该登录方式核心逻辑暂未实现，请切回离线模式！",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (tempType == AccountType.OFFLINE && tempName.isNotBlank()) {
+                            ConfigManager.updateConfig {
+                                copy(
+                                    playerName = tempName,
+                                    accountType = tempType
+                                )
+                            }
+                            showAccountDialog = false
+                        }
+                    }) {
+                        Text("保存并使用")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAccountDialog = false }) {
+                        Text("取消")
+                    }
+                }
+            )
         }
     }
+}
 }
 // (下面保留你原有的 DownloadScreen, SettingsScreen, AboutScreen)
 

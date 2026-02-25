@@ -28,18 +28,13 @@ data class LaunchContext(
     val resolutionHeight: String = "480",
     val isIsolated: Boolean = true, // 核心：默认开启版本隔离！
 ) {
-    // ---------------------------------------------------------
-    // 核心重构：利用 Kotlin 的动态属性 (get()) 自动推导绝对路径！
-    // 外面调用的时候，再也不用传这些恶心人的长字符串了！
-    // ---------------------------------------------------------
     val gameDirectory: String get() = if (isIsolated)
         File(minecraftDir, "versions/$version").absolutePath
     else
         File(minecraftDir).absolutePath
     val assetsRoot: String get() = File(minecraftDir, "assets").absolutePath
     val librariesDirectory: String get() = File(minecraftDir, "libraries").absolutePath
-    val nativesDirectory: String get() = File(minecraftDir, "natives").absolutePath
-    val gameJarPath: String get() = File(minecraftDir, "$version.jar").absolutePath
+    val nativesDirectory: String get() = if (isIsolated) File(gameDirectory, "$version-natives").absolutePath else File(minecraftDir, "natives").absolutePath
     val versionsDirectory: String get() = File(minecraftDir, "versions").absolutePath
 
     override fun toString(): String {
@@ -55,17 +50,14 @@ class MinecraftArgBuilder(
     private val context: LaunchContext
 ) {
 
-    // 自动从 JSON 里掏出 assetsIndex 的名字，坚决不让外面传！
     private val assetsIndexName: String by lazy {
         versionMeta.assetIndex["id"]?.jsonPrimitive?.content ?: throw IllegalStateException("缺失 assetIndex.id")
     }
 
-    // 内部自己生成的 Classpath 字符串
     private val generatedClasspath: String by lazy {
         generateClasspath()
     }
 
-    // 占位符映射表，用到 context 里自动推导出的路径
     private val macroMap: Map<String, String> by lazy {
         mapOf(
             "\${auth_player_name}" to context.authPlayerName,
@@ -92,18 +84,30 @@ class MinecraftArgBuilder(
      * 构建最终的启动命令参数列表
      */
     fun build(): List<String> {
-        // 直接从 Meta 里拿合并好的参数！不用再操心了！
-        val jvmArgs = parseArgumentList(versionMeta.jvmArgs)
-        val gameArgs = parseArgumentList(versionMeta.gameArgs)
+        val jvmArgs = mutableListOf<String>()
+        val gameArgs = mutableListOf<String>()
+
+        // ！！！核心修复：识别并兼容 1.12.2 古墓派版本 ！！！
+        if (versionMeta.jvmArgs.isEmpty() && versionMeta.gameArgs.isEmpty() && versionMeta.minecraftArguments != null) {
+            // 手动注入基础保命 JVM 参数 (没有这些 1.12.2 绝对起不来！)
+            jvmArgs.add("-Djava.library.path=${context.nativesDirectory}")
+            jvmArgs.add("-cp")
+            jvmArgs.add(generatedClasspath)
+            jvmArgs.add("-Xmx2G") // 稍微给点内存，免得瞬间崩盘
+
+            // 按空格切分那条老旧的字符串，并挨个替换宏
+            val legacyArgs = versionMeta.minecraftArguments.split(" ")
+            gameArgs.addAll(legacyArgs.map { replaceMacros(it) })
+        } else {
+            // 现代版本 (1.13+) 走正常的数组解析逻辑
+            jvmArgs.addAll(parseArgumentList(versionMeta.jvmArgs))
+            gameArgs.addAll(parseArgumentList(versionMeta.gameArgs))
+        }
 
         return jvmArgs + listOf(versionMeta.mainClass) + gameArgs
     }
 
-    /**
-     * 基于已经解析的 rootElement 生成 Classpath
-     */
     private fun generateClasspath(): String {
-
         val classpathFiles = mutableListOf<String>()
 
         for (libElement in versionMeta.libraries) {
@@ -113,7 +117,6 @@ class MinecraftArgBuilder(
 
             val pathStr = parseLibraryPath(libObj) ?: continue
 
-            // 直接用 context.librariesDirectory 拼接
             val absoluteLibFile = File(context.librariesDirectory, pathStr)
 
             if (!absoluteLibFile.exists()) {
@@ -123,19 +126,15 @@ class MinecraftArgBuilder(
             classpathFiles.add(absoluteLibFile.absolutePath)
         }
 
-        // 把游戏本体加进去
         val absoluteGameJar = File(versionMeta.clientJarPath)
         if (!absoluteGameJar.exists()) {
-            throw IllegalStateException("你连游戏本体 ${context.gameJarPath} 都没有，玩空气呢？！")
+            throw IllegalStateException("你连游戏本体 ${versionMeta.clientJarPath} 都没有，玩空气呢？！")
         }
         classpathFiles.add(absoluteGameJar.absolutePath)
 
         return classpathFiles.joinToString(File.pathSeparator)
     }
 
-    /**
-     * 解析 Arguments 数组
-     */
     private fun parseArgumentList(array: JsonArray?): List<String> {
         if (array == null) return emptyList()
         val result = mutableListOf<String>()
@@ -163,9 +162,6 @@ class MinecraftArgBuilder(
         return result
     }
 
-    /**
-     * 大一统规则审判者
-     */
     private fun checkRules(rulesArray: JsonArray?, isLibraryRule: Boolean = false): Boolean {
         if (rulesArray == null || rulesArray.isEmpty()) return true
 
@@ -184,9 +180,6 @@ class MinecraftArgBuilder(
         return isAllowed
     }
 
-    /**
-     * 匹配具体的单条规则
-     */
     private fun matchRule(rule: JsonObject, isLibraryRule: Boolean): Boolean {
         if (rule.containsKey("os")) {
             val osRule = rule["os"]!!.jsonObject
@@ -211,9 +204,6 @@ class MinecraftArgBuilder(
         return true
     }
 
-    /**
-     * 宏替换大法
-     */
     private fun replaceMacros(input: String): String {
         var output = input
         for ((macro, value) in macroMap) {

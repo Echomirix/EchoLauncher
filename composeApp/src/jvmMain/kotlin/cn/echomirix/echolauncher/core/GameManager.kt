@@ -52,7 +52,8 @@ object GameManager {
                 val verifier = MinecraftDependencyVerifier(
                     versionMeta = versionMeta,
                     librariesDirectory = ctx.librariesDirectory,
-                    assetsDirectory = ctx.assetsRoot
+                    assetsDirectory = ctx.assetsRoot,
+                    nativesDirectory = ctx.nativesDirectory
                 )
                 verifier.verifyAndDownloadAll()
 
@@ -69,6 +70,8 @@ object GameManager {
                 activeProcess = process
 
                 updateStatus(LaunchState.STARTING, "正在等待游戏窗口...")
+
+                println("启动命令: ${command.joinToString(" ")}")
 
                 // 死盯日志流
                 launch(Dispatchers.IO) {

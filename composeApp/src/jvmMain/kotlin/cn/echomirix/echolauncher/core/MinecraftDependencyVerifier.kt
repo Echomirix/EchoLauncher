@@ -5,11 +5,13 @@ import kotlinx.serialization.json.*
 import java.io.File
 import java.net.URL
 import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 class MinecraftDependencyVerifier(
     private val versionMeta: MinecraftVersionMeta,
     private val librariesDirectory: String,
     private val assetsDirectory: String,
+    private val nativesDirectory: String, // ！！！新加的保命参数：专门放解压后的 dll/so
     private val currentOsName: String = getCurrentOsName(),
     private val currentOsArch: String = getCurrentOsArch()
 ) {
@@ -27,28 +29,58 @@ class MinecraftDependencyVerifier(
             verifyOrDownloadFile(File(versionMeta.clientJarPath), clientUrl, clientSha1, "游戏本体")
         }
 
+        // 确保 Natives 文件夹存在
+        val nativesDirFile = File(nativesDirectory)
+        if (!nativesDirFile.exists()) nativesDirFile.mkdirs()
 
         // 2. 校验依赖库 (Libraries) - 开启疯狂并发模式！
         val libJobs = mutableListOf<Deferred<Unit>>()
         for (libElement in versionMeta.libraries) {
             val libObj = libElement.jsonObject
 
-            // 必须过规则！不需要的库我们坚决不下载！
+            // 必须过规则！
             if (!checkLibraryRules(libObj["rules"]?.jsonArray)) continue
 
-            val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject ?: continue
-            val pathStr = artifactObj["path"]?.jsonPrimitive?.content ?: continue
-            val urlStr = artifactObj["url"]?.jsonPrimitive?.content ?: continue
-            val sha1Str = artifactObj["sha1"]?.jsonPrimitive?.content ?: continue
+            // 【线路A】：下载普通 Java 库 (artifact)
+            val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject
+            if (artifactObj != null) {
+                val pathStr = artifactObj["path"]?.jsonPrimitive?.content
+                val urlStr = artifactObj["url"]?.jsonPrimitive?.content
+                val sha1Str = artifactObj["sha1"]?.jsonPrimitive?.content
+                if (pathStr != null && urlStr != null && sha1Str != null) {
+                    val targetFile = File(librariesDirectory, pathStr)
+                    libJobs.add(async(Dispatchers.IO) {
+                        verifyOrDownloadFile(targetFile, urlStr, sha1Str, "依赖库: $pathStr")
+                    })
+                }
+            }
 
-            val targetFile = File(librariesDirectory, pathStr)
+            // 【线路B】：挖掘并下载 Native 库！(你落下的天坑！)
+            val nativesObj = libObj["natives"]?.jsonObject
+            if (nativesObj != null) {
+                val rawClassifier = nativesObj[currentOsName]?.jsonPrimitive?.content
+                if (rawClassifier != null) {
+                    // Mojang 喜欢把 32/64 位写成 ${arch}
+                    val classifierKey = rawClassifier.replace("\${arch}", if (currentOsArch == "x86") "32" else "64")
+                    val classifierObj = libObj["downloads"]?.jsonObject?.get("classifiers")?.jsonObject?.get(classifierKey)?.jsonObject
 
-            // 协程大军出击！并发下载！
-            libJobs.add(async(Dispatchers.IO) {
-                verifyOrDownloadFile(targetFile, urlStr, sha1Str, "依赖库: $pathStr")
-            })
+                    if (classifierObj != null) {
+                        val pathStr = classifierObj["path"]?.jsonPrimitive?.content
+                        val urlStr = classifierObj["url"]?.jsonPrimitive?.content
+                        val sha1Str = classifierObj["sha1"]?.jsonPrimitive?.content
+                        if (pathStr != null && urlStr != null && sha1Str != null) {
+                            val targetFile = File(librariesDirectory, pathStr)
+                            libJobs.add(async(Dispatchers.IO) {
+                                verifyOrDownloadFile(targetFile, urlStr, sha1Str, "Native库: $pathStr")
+                                // ！！！下完之后必须把里面的 dll/so/dylib 给掏出来扔进 natives 里！！！
+                                extractNatives(targetFile, nativesDirFile)
+                            })
+                        }
+                    }
+                }
+            }
         }
-        // 等待所有库下载完成
+        // 等待所有库下载并解压完成
         libJobs.awaitAll()
 
         // 3. 校验资产索引 (Asset Index)
@@ -68,6 +100,31 @@ class MinecraftDependencyVerifier(
     }
 
     /**
+     * 暴力解压 Native 文件
+     */
+    private fun extractNatives(jarFile: File, destDir: File) {
+        if (!jarFile.exists()) return
+        try {
+            ZipFile(jarFile).use { zip ->
+                zip.entries().asSequence().forEach { entry ->
+                    // 屏蔽无用文件，只要本体 dll/so
+                    if (!entry.isDirectory && !entry.name.startsWith("META-INF/")) {
+                        val outFile = File(destDir, entry.name)
+                        outFile.parentFile?.mkdirs()
+                        zip.getInputStream(entry).use { input ->
+                            outFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            println("[Native解压失败] ${jarFile.name} -> ${e.message}")
+        }
+    }
+
+    /**
      * 解析 Asset Index JSON 并疯狂并发下载几千个小文件
      */
     private suspend fun verifyAndDownloadAssetsObjects(indexFile: File) = coroutineScope {
@@ -80,10 +137,9 @@ class MinecraftDependencyVerifier(
 
         for ((_, value) in objectsObj) {
             val hash = value.jsonObject["hash"]?.jsonPrimitive?.content ?: continue
-            val subDir = hash.substring(0, 2) // Mojang 的套路：取哈希值前两位做文件夹
+            val subDir = hash.substring(0, 2)
             val targetFile = File(objectsDir, "$subDir/$hash")
 
-            // 拼接官方资源下载地址
             val url = "https://resources.download.minecraft.net/$subDir/$hash"
 
             assetJobs.add(async(Dispatchers.IO) {
@@ -94,14 +150,10 @@ class MinecraftDependencyVerifier(
         assetJobs.awaitAll()
     }
 
-    /**
-     * 核心校验与下载逻辑
-     */
     private fun verifyOrDownloadFile(file: File, url: String, expectedSha1: String, logName: String) {
         if (file.exists()) {
             val actualSha1 = calculateSha1(file)
             if (actualSha1.equals(expectedSha1, ignoreCase = true)) {
-                // 文件完好无损
                 return
             } else {
                 println("[校验失败] $logName 文件损坏或被篡改，准备重新下载...")
@@ -110,13 +162,11 @@ class MinecraftDependencyVerifier(
             println("[发现缺失] $logName 不存在，准备下载...")
         }
 
-        // 文件不存在或哈希不匹配，开始下载
         downloadFile(url, file)
 
-        // 下载完再查一次岗！
         val newSha1 = calculateSha1(file)
         if (!newSha1.equals(expectedSha1, ignoreCase = true)) {
-            throw IllegalStateException("你家网络有毒吧？下载完的 $logName 哈希值依然对不上！")
+            throw IllegalStateException("下载完的 $logName 哈希值依然对不上！")
         }
     }
 
@@ -128,10 +178,8 @@ class MinecraftDependencyVerifier(
                     input.copyTo(output)
                 }
             }
-            println("[下载成功] -> ${targetFile.name}")
         } catch (e: Exception) {
-            println("[下载失败] $urlStr -> ${e.message}")
-            targetFile.delete() // 下载失败必须删掉残缺文件！
+            targetFile.delete()
             throw e
         }
     }
