@@ -2,6 +2,8 @@ package cn.echomirix.echolauncher.ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.window.WindowDraggableArea
@@ -12,7 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowScope
@@ -22,6 +27,7 @@ import cn.echomirix.echolauncher.core.LaunchStatus
 import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.LauncherConfig
+import cn.echomirix.echolauncher.core.download.Version
 import cn.echomirix.echolauncher.core.version.LocalVersion
 
 
@@ -48,10 +54,11 @@ fun LauncherNavBar(
 @Composable
 fun WindowScope.CustomTopBar(
     onClose: () -> Unit,
-    onMinimize: () -> Unit
+    onMinimize: () -> Unit,
+    color: Color,
 ) {
     WindowDraggableArea(
-        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary),
+        modifier = Modifier.fillMaxWidth().background(color),
         content = {
             Row(
                 modifier = Modifier.fillMaxWidth().height(AppConstant.TOPBAR_HEIGHT.dp),
@@ -121,7 +128,7 @@ fun DirectionalTabTransition(navigator: Navigator) {
 }
 
 @Composable
-fun UserProfileCard(appConfig: LauncherConfig, onAccountClick : () -> Unit) {
+fun UserProfileCard(appConfig: LauncherConfig, onAccountClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -312,6 +319,248 @@ fun LaunchActionArea(
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VersionSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onlyRelease: Boolean,
+    onOnlyReleaseChange: () -> Unit,
+    filtered: List<Version>,
+    selected: Version?,
+    loading: Boolean,
+    navigator: Navigator,
+
+    ) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { onQueryChange(query) },
+                modifier = Modifier.fillMaxWidth(),
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = "搜索") },
+                label = { Text("搜索版本号 (例如 1.20.1)") },
+                singleLine = true
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // 左侧组
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    FilterChip(
+                        selected = onlyRelease,
+                        onClick = { onOnlyReleaseChange },
+                        label = { Text("只看 release") }
+                    )
+                    Text(
+                        text = "共 ${filtered.size} 个版本",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // 右侧组
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+//                                Button(
+//                                    enabled = !loading,
+//                                    onClick = { refresh() }
+//                                ) {
+//                                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
+//                                    Spacer(Modifier.width(8.dp))
+//                                    Text("刷新版本列表")
+//                                }
+
+                    FilledTonalButton(
+                        enabled = selected != null && !loading,
+                        onClick = {
+                            val v = selected ?: return@FilledTonalButton
+                            navigator.push(VersionInstallOptionsScreen(v))
+                        }
+                    ) {
+                        Icon(Icons.Rounded.SystemUpdateAlt, contentDescription = "下载")
+                        Spacer(Modifier.width(8.dp))
+                        Text("下载所选版本")
+                    }
+                }
+            }
+
+
+        }
+    }
+}
+
+@Composable
+fun SelectedInfoCard(
+    selected: Version?
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(6.dp)) {
+            Text(
+                text = "当前选择",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = selected?.id ?: "未选择",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = selected?.let { "${it.type} · ${it.releaseTime}" } ?: "请先选择一个版本",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun ColorSettingRow(
+    label: String,
+    colorValue: Long,
+    onColorChange: (Long) -> Unit
+) {
+    // 绑定文本和展开状态
+    var localHex by remember(colorValue) {
+        mutableStateOf(colorValue.toString(16).padStart(8, '0').uppercase())
+    }
+    var expanded by remember { mutableStateOf(false) }
+
+    val currentColor = Color(colorValue)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = localHex,
+                onValueChange = { localHex = it },
+                modifier = Modifier.weight(1f).onFocusChanged { focus ->
+                    if (!focus.isFocused) {
+                        val parsed = localHex.toLongOrNull(16)
+                        if (parsed != null) {
+                            onColorChange(parsed)
+                        } else {
+                            localHex = colorValue.toString(16).padStart(8, '0').uppercase()
+                        }
+                    }
+                },
+                label = { Text(label) },
+                leadingIcon = { Text("#") },
+                singleLine = true
+            )
+
+            Spacer(Modifier.width(16.dp))
+
+            // 颜色预览与取色器开关
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(currentColor)
+                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                    .clickable { expanded = !expanded },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.Palette,
+                    contentDescription = "调色板",
+                    // 根据背景亮度决定图标是黑色还是白色，防止看不清
+                    tint = if (currentColor.luminance() > 0.5f) Color.Black else Color.White
+                )
+            }
+        }
+
+        // 展开的色条区域
+        AnimatedVisibility(visible = expanded) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+
+                    // 内部辅助函数：单条 Slider
+                    @Composable
+                    fun ColorSlider(title: String, value: Float, trackColor: Color, onValueChange: (Float) -> Unit) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(title, modifier = Modifier.width(24.dp), style = MaterialTheme.typography.labelMedium)
+                            Slider(
+                                value = value,
+                                onValueChange = onValueChange,
+                                modifier = Modifier.weight(1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = trackColor,
+                                    activeTrackColor = trackColor.copy(alpha = 0.7f)
+                                )
+                            )
+                            Text(
+                                text = (value * 255).toInt().toString(),
+                                modifier = Modifier.width(32.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+
+                    // 统一更新方法
+                    val updateColor = { r: Float, g: Float, b: Float, a: Float ->
+                        val newColor = Color(red = r, green = g, blue = b, alpha = a)
+                        // 将 Compose Color 转回 Long (ARGB)
+                        val argbLong = newColor.toArgb().toLong() and 0xFFFFFFFFL
+                        onColorChange(argbLong)
+                    }
+
+                    ColorSlider("R", currentColor.red, Color.Red) {
+                        updateColor(
+                            it,
+                            currentColor.green,
+                            currentColor.blue,
+                            currentColor.alpha
+                        )
+                    }
+                    ColorSlider("G", currentColor.green, Color.Green) {
+                        updateColor(
+                            currentColor.red,
+                            it,
+                            currentColor.blue,
+                            currentColor.alpha
+                        )
+                    }
+                    ColorSlider("B", currentColor.blue, Color.Blue) {
+                        updateColor(
+                            currentColor.red,
+                            currentColor.green,
+                            it,
+                            currentColor.alpha
+                        )
+                    }
+                    ColorSlider("A", currentColor.alpha, Color.Gray) {
+                        updateColor(
+                            currentColor.red,
+                            currentColor.green,
+                            currentColor.blue,
+                            it
+                        )
+                    }
                 }
             }
         }

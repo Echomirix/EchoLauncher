@@ -47,7 +47,7 @@ fun WindowScope.App(
                 ) {
                     Scaffold(
                         topBar = {
-                            CustomTopBar(onClose, onMinimize)
+                            CustomTopBar(onClose, onMinimize, Color(appConfig.primaryColor))
                         },
                         bottomBar = {
                             val currentTab = navigator.lastItem

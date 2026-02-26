@@ -158,7 +158,6 @@ class MinecraftDependencyVerifier(
     }
 
 
-
     /**
      * 暴力解压 Native 文件
      */
@@ -228,7 +227,6 @@ class MinecraftDependencyVerifier(
             throw IllegalStateException("下载完的 $logName 哈希值依然对不上！")
         }
     }
-
 
 
     private fun checkLibraryRules(rulesArray: JsonArray?): Boolean {

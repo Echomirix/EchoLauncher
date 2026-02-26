@@ -16,7 +16,11 @@ import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.core.config.LauncherConfig
 
 @Composable
-fun ChangeAccountDialog (appConfig: LauncherConfig, onDismiss: () -> Unit, onConfirm: (tempName: String, tempType: AccountType) -> Unit) {
+fun ChangeAccountDialog(
+    appConfig: LauncherConfig,
+    onDismiss: () -> Unit,
+    onConfirm: (tempName: String, tempType: AccountType) -> Unit
+) {
     var tempName by remember { mutableStateOf(appConfig.playerName) }
     var tempType by remember { mutableStateOf(appConfig.accountType) }
     var accountMenuExpanded by remember { mutableStateOf(false) }

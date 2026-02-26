@@ -79,12 +79,9 @@ object ConfigManager {
                 try {
                     val jsonStr = json.encodeToString(config)
 
-                    // 1. 先写到一个临时文件里 (.tmp)
                     val tmpFile = File(configFile.parentFile, "${configFile.name}.tmp")
                     tmpFile.writeText(jsonStr)
 
-                    // 2. 用 NIO 的原子级移动覆盖原文件！
-                    // 这样就算在写 tmp 的时候断电，原本的 config.json 也毫发无损！
                     Files.move(
                         tmpFile.toPath(),
                         configFile.toPath(),
@@ -102,7 +99,6 @@ object ConfigManager {
     fun updateConfig(block: LauncherConfig.() -> LauncherConfig) {
         _configFlow.value = _configFlow.value.block()
         println("[Config] 配置已更新")
-        // 不要阻塞 UI 线程，让后台去排队存文件
         configScope.launch {
             save()
         }

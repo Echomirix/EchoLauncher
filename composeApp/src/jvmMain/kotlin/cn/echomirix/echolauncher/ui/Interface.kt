@@ -9,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +30,9 @@ import cn.echomirix.echolauncher.core.download.DownloadManager
 import cn.echomirix.echolauncher.core.download.Version
 import cn.echomirix.echolauncher.core.version.LocalVersion
 import cn.echomirix.echolauncher.core.version.LocalVersionManager
+import cn.echomirix.echolauncher.data.InstallOptions
+import cn.echomirix.echolauncher.data.enabledState
+import cn.echomirix.echolauncher.data.loaderSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -157,18 +159,22 @@ class HomeScreen : TabScreen {
                 }
             }
             if (showAccountDialog) {
-                ChangeAccountDialog(appConfig = appConfig, onDismiss = { showAccountDialog = false }, onConfirm = { tempName, tempType ->
-                    run {
-                        if (tempType == AccountType.OFFLINE && tempName.isNotBlank()) {
-                            ConfigManager.updateConfig {
-                                copy(
-                                    playerName = tempName,
-                                    accountType = tempType
-                                )
+                ChangeAccountDialog(
+                    appConfig = appConfig,
+                    onDismiss = { showAccountDialog = false },
+                    onConfirm = { tempName, tempType ->
+                        run {
+                            if (tempType == AccountType.OFFLINE && tempName.isNotBlank()) {
+                                ConfigManager.updateConfig {
+                                    copy(
+                                        playerName = tempName,
+                                        accountType = tempType
+                                    )
+                                }
+                                showAccountDialog = false
                             }
-                            showAccountDialog = false
                         }
-                    }})
+                    })
 
             }
         }
@@ -225,81 +231,21 @@ class DownloadScreen : TabScreen {
             modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor))
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(8.dp,0.dp),
+                modifier = Modifier.fillMaxSize().padding(8.dp, 0.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
                 // 顶部操作条：刷新 / 过滤
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = "搜索") },
-                            label = { Text("搜索版本号 (例如 1.20.1)") },
-                            singleLine = true
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            // 左侧组
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                FilterChip(
-                                    selected = onlyRelease,
-                                    onClick = { onlyRelease = !onlyRelease },
-                                    label = { Text("只看 release") }
-                                )
-                                Text(
-                                    text = "共 ${filtered.size} 个版本",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            // 右侧组
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-//                                Button(
-//                                    enabled = !loading,
-//                                    onClick = { refresh() }
-//                                ) {
-//                                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
-//                                    Spacer(Modifier.width(8.dp))
-//                                    Text("刷新版本列表")
-//                                }
-
-                                FilledTonalButton(
-                                    enabled = selected != null && !loading,
-                                    onClick = {
-                                        val v = selected ?: return@FilledTonalButton
-                                        navigator.push(VersionInstallOptionsScreen(v))
-                                    }
-                                ) {
-                                    Icon(Icons.Rounded.SystemUpdateAlt, contentDescription = "下载")
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("下载所选版本")
-                                }
-                            }
-                        }
-
-
-                    }
-                }
+                VersionSearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onlyRelease = onlyRelease,
+                    onOnlyReleaseChange = { onlyRelease = !onlyRelease },
+                    loading = loading,
+                    filtered = filtered,
+                    selected = selected,
+                    navigator = navigator
+                )
 
                 // 错误提示
                 if (error != null) {
@@ -393,27 +339,7 @@ class DownloadScreen : TabScreen {
                 }
 
                 // 底部：当前选择信息
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(6.dp)) {
-                        Text(
-                            text = "当前选择",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = selected?.id ?: "未选择",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = selected?.let { "${it.type} · ${it.releaseTime}" } ?: "请先选择一个版本",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                SelectedInfoCard(selected)
             }
 
             // 右下角浮动刷新按钮（方便一点）
@@ -444,56 +370,6 @@ class VersionInstallOptionsScreen(
     private val version: Version
 ) : Screen {
 
-    data class InstallOptions(
-        val forge: Boolean = false,
-        val neoForge: Boolean = false,
-        val fabric: Boolean = false,
-        val quilt: Boolean = false,
-        val optiFine: Boolean = false,
-
-        val installClient: Boolean = true,
-        val installLibraries: Boolean = true,
-        val installAssets: Boolean = true,
-
-        val customName: String = "",
-        val javaArgs: String = "-Xmx2G",
-        val loaderVersion: String = ""
-    )
-
-    data class EnabledState(
-        val forge: Boolean,
-        val neoForge: Boolean,
-        val fabric: Boolean,
-        val quilt: Boolean,
-        val optiFine: Boolean,
-    )
-
-    // 精确的互斥逻辑
-    private fun enabledState(o: InstallOptions): EnabledState {
-        return EnabledState(
-            // 主加载器互斥：一旦选中了另外三种之一，当前的就被禁用
-            forge = !o.neoForge && !o.fabric && !o.quilt,
-            neoForge = !o.forge && !o.fabric && !o.quilt,
-
-            // Fabric/Quilt 除了和其他主加载器互斥，还和 OptiFine 互斥
-            fabric = !o.forge && !o.neoForge && !o.quilt && !o.optiFine,
-            quilt = !o.forge && !o.neoForge && !o.fabric && !o.optiFine,
-
-            // OptiFine 仅仅和 Fabric/Quilt 互斥（可以与 Forge/NeoForge 或 原版 共存）
-            optiFine = !o.fabric && !o.quilt
-        )
-    }
-
-    private fun loaderSummary(o: InstallOptions): String {
-        val parts = buildList {
-            if (o.forge) add("Forge")
-            if (o.neoForge) add("NeoForge")
-            if (o.fabric) add("Fabric")
-            if (o.quilt) add("Quilt")
-            if (o.optiFine) add("OptiFine")
-        }
-        return if (parts.isEmpty()) "Vanilla (原版)" else parts.joinToString(" + ")
-    }
 
     // 把 OptionRow 移到 Content() 的外部，作为类的私有方法
     @Composable
@@ -515,7 +391,9 @@ class VersionInstallOptionsScreen(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (enabledFlag || checked) Color.Unspecified else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    color = if (enabledFlag || checked) Color.Unspecified else MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = 0.38f
+                    )
                 )
             }
             if (reason != null) {
@@ -692,48 +570,6 @@ class VersionInstallOptionsScreen(
                     }
                 }
 
-                /*// 安装内容
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text("安装内容", style = MaterialTheme.typography.titleMedium)
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = options.installClient,
-                                    onCheckedChange = { v -> options = options.copy(installClient = v) }
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("客户端本体 (client.jar)")
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = options.installLibraries,
-                                    onCheckedChange = { v -> options = options.copy(installLibraries = v) }
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Libraries 依赖库")
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = options.installAssets,
-                                    onCheckedChange = { v -> options = options.copy(installAssets = v) }
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Assets 资源文件")
-                            }
-                        }
-                    }
-                }*/
-
                 // 高级设置
                 item {
                     Card(
@@ -777,15 +613,140 @@ class SettingsScreen : TabScreen {
     @Composable
     override fun Content() {
         val appConfig = LocalAppConfig.current
+
+        var draftConfig by remember(appConfig) { mutableStateOf(appConfig.copy()) }
+
+        val isModified = draftConfig != appConfig
+
         Box(
-            modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor)),
-            contentAlignment = Alignment.Center
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(draftConfig.subColor)) // 预览背景色修改
         ) {
-            Text(
-                text = "设置界面正在开发中...",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                // 底部多留点空间，避免被浮动按钮遮挡
+                contentPadding = PaddingValues(bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 页面标题
+                item {
+                    Text(
+                        text = "全局设置",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                // 1. 游戏运行设置
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                "游戏运行目录",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            OutlinedTextField(
+                                value = draftConfig.minecraftDir,
+                                onValueChange = { draftConfig = draftConfig.copy(minecraftDir = it) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Minecraft 根目录 (.minecraft)") },
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = draftConfig.customMinecraftDir ?: "",
+                                onValueChange = {
+                                    draftConfig = draftConfig.copy(customMinecraftDir = it.ifBlank { null })
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("自定义游戏运行目录 (可选)") },
+                                placeholder = { Text("如果不填，将默认使用 Minecraft 根目录") },
+                                singleLine = true
+                            )
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Switch(
+                                    checked = draftConfig.isIsolated,
+                                    onCheckedChange = { draftConfig = draftConfig.copy(isIsolated = it) }
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("版本隔离", style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "开启后每个版本将使用独立的文件夹存储 mods、saves 等",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. 外观设置
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                "外观与个性化",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            // 使用我们刚才封装的高级组件！
+                            ColorSettingRow(
+                                label = "主色调 (ARGB Hex)",
+                                colorValue = draftConfig.primaryColor,
+                                onColorChange = { draftConfig = draftConfig.copy(primaryColor = it) }
+                            )
+
+                            ColorSettingRow(
+                                label = "副色调 / 背景色 (ARGB Hex)",
+                                colorValue = draftConfig.subColor,
+                                onColorChange = { draftConfig = draftConfig.copy(subColor = it) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. 只有当配置发生变化时，才显示悬浮保存按钮
+            if (isModified) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        // 将草稿一次性覆盖到全局配置
+                        ConfigManager.updateConfig { draftConfig.copy() }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(24.dp),
+                    icon = {
+                        Icon(
+                            Icons.Rounded.SystemUpdateAlt,
+                            contentDescription = "保存"
+                        )
+                    },
+                    text = { Text("保存修改") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
     }
 }
