@@ -1,9 +1,7 @@
 package cn.echomirix.echolauncher.core
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import java.io.File
 
 enum class LaunchState {
@@ -19,7 +17,7 @@ data class LaunchStatus(
     val text: String = "等待启动"
 )
 
-object GameManager {
+class LaunchTask(val ctx: LaunchContext) {
     private val _status = MutableStateFlow(LaunchStatus())
     val status: StateFlow<LaunchStatus> = _status.asStateFlow()
 
@@ -27,20 +25,13 @@ object GameManager {
     var activeProcess: Process? = null
         private set
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var resetJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val _logFlow = MutableSharedFlow<String>(extraBufferCapacity = 100)
+    val logFlow: SharedFlow<String> = _logFlow.asSharedFlow()
+    private var isLaunchConfirmed = false
 
-    fun startGame(ctx: LaunchContext) {
-        if (activeProcess?.isAlive == true || _status.value.state != LaunchState.IDLE) {
-            updateStatus(LaunchState.ERROR, "游戏正在运行或处于非空闲状态！")
-
-            resetStatusAfterDelay(3000)
-            return
-        }
-
-        resetJob?.cancel()
-
-        scope.launch {
+    suspend fun start() = coroutineScope {
             try {
                 updateStatus(LaunchState.CHECKING, "正在扫描和补全依赖文件...")
 
@@ -71,28 +62,12 @@ object GameManager {
 
                 updateStatus(LaunchState.STARTING, "正在等待游戏窗口...")
 
-                println("启动命令: ${command.joinToString(" ")}")
+//                println("启动命令: ${command.joinToString(" ")}")
+
+                launch(Dispatchers.IO) { handleLogs() }
 
                 launch(Dispatchers.IO) {
-                    val successMarkers = listOf("Reloading ResourceManager")
 
-                    var handler: (String) -> Unit
-
-                    handler = { line ->
-                        println("[MC Log] $line")
-                        if (successMarkers.any { marker -> line.contains(marker) }) {
-                            updateStatus(LaunchState.SUCCESS, "游戏启动成功！")
-                            resetStatusAfterDelay(4000, forceReset = true)
-                            // 命中一次后换成纯打印，彻底零匹配开销
-                            handler = { pure -> println("[MC Log] $pure") }
-                        }
-                    }
-
-                    process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { line -> handler(line) }
-                    }
-
-                    // 进程自然死亡或被强制杀死
                     val exitCode = process.waitFor()
                     activeProcess = null
                     updateStatus(LaunchState.IDLE, "游戏已退出 (Exit Code: $exitCode)")
@@ -104,17 +79,47 @@ object GameManager {
                 updateStatus(LaunchState.ERROR, "启动异常: ${e.message ?: "未知错误"}")
                 resetStatusAfterDelay(5000)
             }
+    }
+
+    private fun handleLogs() {
+
+        val timeoutJob = scope.launch {
+            delay(25000)
+            if (!isLaunchConfirmed && activeProcess?.isAlive == true) {
+                isLaunchConfirmed = true
+                updateStatus(LaunchState.SUCCESS, "游戏似乎已成功运行 (超时自动判定)")
+                resetStatusAfterDelay(4000, forceReset = true)
+            }
+        }
+
+        val p = activeProcess ?: return
+        var handler: (String) -> Unit
+        val successMarkers = listOf(
+            "Reloading ResourceManager",
+            "OpenAL initialized",
+            "Setting user:", // 某些老版本
+            "Backend library:" // 某些渲染器
+        )
+
+        handler = { line ->
+            println("[MC Log] $line")
+            if (isLaunchConfirmed || successMarkers.any { marker -> line.contains(marker) }) {
+                updateStatus(LaunchState.SUCCESS, "游戏启动成功！")
+                resetStatusAfterDelay(4000, forceReset = true)
+                isLaunchConfirmed = true
+                timeoutJob.cancel()
+                // 命中一次后换成纯打印，彻底零匹配开销
+                handler = { pure -> println("[MC Log] $pure") }
+            }
+        }
+
+        p.inputStream.bufferedReader().useLines { lines ->
+            lines.forEach { line -> handler(line) }
         }
     }
 
-    fun killGame() {
-        activeProcess?.let {
-            if (it.isAlive) {
-                it.destroy()
-                updateStatus(LaunchState.IDLE, "已强行拔管，终止进程")
-            }
-        }
-        activeProcess = null
+    fun stop() {
+        activeProcess?.destroy()
     }
 
     private fun updateStatus(newState: LaunchState, newText: String) {

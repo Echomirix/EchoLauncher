@@ -2,7 +2,9 @@ package cn.echomirix.echolauncher.core
 
 import cn.echomirix.echolauncher.util.*
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.util.zip.ZipFile
 
@@ -26,13 +28,14 @@ class MinecraftDependencyVerifier(
     private val currentOsName: String = getCurrentOsName(),
     private val currentOsArch: String = getCurrentOsArch()
 ) {
+    private val downloadDispatcher = Dispatchers.IO.limitedParallelism(16)
 
     suspend fun verifyAndDownloadAll() = coroutineScope {
         println("[校验] 开始文件审查...")
 
         // 1. 校验游戏本体 (Client Jar)
-        val clientUrl = versionMeta.clientDownload?.get("url")?.jsonPrimitive?.content
-        val clientSha1 = versionMeta.clientDownload?.get("sha1")?.jsonPrimitive?.content
+        val clientUrl = versionMeta.model.downloads?.client?.url
+        val clientSha1 = versionMeta.model.downloads?.client?.sha1
         if (clientUrl != null && clientSha1 != null) {
             verifyOrDownloadFile(File(versionMeta.clientJarPath), clientUrl, clientSha1, "游戏本体")
         }
@@ -43,20 +46,19 @@ class MinecraftDependencyVerifier(
 
         // 2. 校验依赖库 (Libraries) - 开启并发模式
         val libJobs = mutableListOf<Deferred<Unit>>()
-        for (libElement in versionMeta.libraries) {
-            val libObj = libElement.jsonObject
+        for (libElement in versionMeta.model.libraries) {
 
-            if (!checkLibraryRules(libObj["rules"]?.jsonArray)) continue
-            val nativesObj = libObj["natives"]?.jsonObject
+            if (!checkLibraryRules(libElement.rules)) continue
+            val nativesObj = libElement.natives
 
             if (nativesObj == null) {
-                val info = extractDownloadInfo(libObj) ?: continue
+                val info = extractDownloadInfo(libElement) ?: continue
                 val targetFile = File(librariesDirectory, info.path)
                 targetFile.parentFile?.mkdirs()
 
                 if (!targetFile.exists()) {
                     println("[下载] ${info.url}")
-                    libJobs.add(async(Dispatchers.IO) {
+                    libJobs.add(async(downloadDispatcher) {
                         downloadFile(info.url, targetFile)
                         info.verify(targetFile)
                     })
@@ -67,11 +69,11 @@ class MinecraftDependencyVerifier(
             // 【线路B】：挖掘并下载 Native 库
 
             if (nativesObj != null) {
-                val rawClassifier = nativesObj[currentOsName]?.jsonPrimitive?.content
+                val rawClassifier = nativesObj.get(currentOsName)
                 if (rawClassifier != null) {
                     val classifierKey = rawClassifier.replace($$"${arch}", if (currentOsArch == "x86") "32" else "64")
                     val classifierObj =
-                        libObj["downloads"]?.jsonObject?.get("classifiers")?.jsonObject?.get(classifierKey)?.jsonObject
+                        libElement.downloads?.classifiers?.get(classifierKey)?.jsonObject
 
                     if (classifierObj != null) {
                         val pathStr = classifierObj["path"]?.jsonPrimitive?.content
@@ -80,7 +82,7 @@ class MinecraftDependencyVerifier(
                         val sha1Str = classifierObj["sha1"]?.jsonPrimitive?.content
                         if (pathStr != null && urlStr != null && sha1Str != null) {
                             val targetFile = File(librariesDirectory, pathStr)
-                            libJobs.add(async(Dispatchers.IO) {
+                            libJobs.add(async(downloadDispatcher) {
                                 verifyOrDownloadFile(targetFile, urlStr, sha1Str, "Native库: $pathStr")
                                 extractNatives(targetFile, nativesDirFile)
                             })
@@ -93,11 +95,11 @@ class MinecraftDependencyVerifier(
         libJobs.awaitAll()
 
         // 3. 校验资产索引 (Asset Index)
-        val assetIndexId = versionMeta.assetIndex["id"]?.jsonPrimitive?.content
-        val assetIndexUrl = versionMeta.assetIndex["url"]?.jsonPrimitive?.content
-        val assetIndexSha1 = versionMeta.assetIndex["sha1"]?.jsonPrimitive?.content
+        val assetIndexId = versionMeta.getAssetIndexId()
+        val assetIndexUrl = versionMeta.model.assetIndex?.url
+        val assetIndexSha1 = versionMeta.model.assetIndex?.sha1
 
-        if (assetIndexId != null && assetIndexUrl != null && assetIndexSha1 != null) {
+        if (assetIndexUrl != null && assetIndexSha1 != null) {
             val indexFile = File(assetsDirectory, "indexes/$assetIndexId.json")
             verifyOrDownloadFile(indexFile, assetIndexUrl, assetIndexSha1, "资产索引: $assetIndexId")
 
@@ -108,41 +110,30 @@ class MinecraftDependencyVerifier(
         println("[校验] 所有依赖准备就绪！允许放行！")
     }
 
-    private fun extractDownloadInfo(libObj: JsonObject): DownloadInfo? {
-        val artifactObj = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject
-        val pathFromArtifact = artifactObj?.get("path")?.jsonPrimitive?.content
-        val urlFromArtifact = artifactObj?.get("url")?.jsonPrimitive?.content
-        val nameStr = libObj["name"]?.jsonPrimitive?.content
+    private fun extractDownloadInfo(libObj: Library): DownloadInfo? {
+        val artifactObj = libObj.downloads?.artifact
+        val pathFromArtifact = artifactObj?.path
+        val urlFromArtifact = artifactObj?.url
+        val nameStr = libObj.name
 
         // 先试标准 artifact
         if (pathFromArtifact != null && urlFromArtifact != null) {
             return DownloadInfo(
                 path = pathFromArtifact,
                 url = urlFromArtifact,
-                sha1 = artifactObj["sha1"]?.jsonPrimitive?.content,
-                sha256 = artifactObj["sha256"]?.jsonPrimitive?.content,
-                sha512 = artifactObj["sha512"]?.jsonPrimitive?.content,
-                md5 = artifactObj["md5"]?.jsonPrimitive?.content,
-                size = artifactObj["size"]?.jsonPrimitive?.longOrNull
+                sha1 = artifactObj.sha1,
+                size = artifactObj.size.toLong()
             )
         }
 
         // 兜底：Fabric/Forge 自带 Maven 坐标 + url
-        if (nameStr != null) {
-            val path = parseLibraryPath(libObj) ?: return null
-            val base = libObj["url"]?.jsonPrimitive?.content ?: "https://libraries.minecraft.net/"
-            val url = if (base.endsWith("/")) "$base$path" else "$base/$path"
-            return DownloadInfo(
-                path = path,
-                url = url,
-                sha1 = libObj["sha1"]?.jsonPrimitive?.content,
-                sha256 = libObj["sha256"]?.jsonPrimitive?.content,
-                sha512 = libObj["sha512"]?.jsonPrimitive?.content,
-                md5 = libObj["md5"]?.jsonPrimitive?.content,
-                size = libObj["size"]?.jsonPrimitive?.longOrNull
-            )
-        }
-        return null
+        val path = parseLibraryPath(libObj) ?: return null
+        val base = libObj.url ?: "https://libraries.minecraft.net/"
+        val url = if (base.endsWith("/")) "$base$path" else "$base/$path"
+        return DownloadInfo(
+            path = path,
+            url = url,
+        )
     }
 
     private fun DownloadInfo.verify(file: File) {
@@ -229,18 +220,17 @@ class MinecraftDependencyVerifier(
     }
 
 
-    private fun checkLibraryRules(rulesArray: JsonArray?): Boolean {
+    private fun checkLibraryRules(rulesArray: List<Rule>?): Boolean {
         if (rulesArray == null || rulesArray.isEmpty()) return true
         var isAllowed = false
         for (ruleElement in rulesArray) {
-            val rule = ruleElement.jsonObject
-            val action = rule["action"]?.jsonPrimitive?.content ?: continue
+            val action = ruleElement.action
 
             var isRuleMatched = true
-            if (rule.containsKey("os")) {
-                val osRule = rule["os"]!!.jsonObject
-                val osNameRule = osRule["name"]?.jsonPrimitive?.content
-                val osArchRule = osRule["arch"]?.jsonPrimitive?.content
+            if (ruleElement.os != null) {
+                val osRule = ruleElement.os
+                val osNameRule = osRule.name
+                val osArchRule = osRule.arch
                 if (osNameRule != null && osNameRule != currentOsName) isRuleMatched = false
                 if (osArchRule != null && osArchRule != currentOsArch) isRuleMatched = false
             }

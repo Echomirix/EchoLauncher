@@ -1,66 +1,226 @@
 package cn.echomirix.echolauncher.core
 
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
 import java.io.File
+
+// ==========================================
+// 1. 自定义序列化器 (处理混合数组)
+// ==========================================
+
+object ArgumentSerializer : JsonContentPolymorphicSerializer<Argument>(Argument::class) {
+    override fun selectDeserializer(element: JsonElement): KSerializer<out Argument> {
+        return when (element) {
+            is JsonPrimitive -> if (element.isString) StringArgumentSerializer else throw Exception("未知的 primitive Argument")
+            is JsonObject -> RuleArgument.serializer()
+            else -> throw Exception("无法解析的 Argument 格式")
+        }
+    }
+}
+
+object StringArgumentSerializer : KSerializer<StringArgument> {
+    override val descriptor: SerialDescriptor = String.serializer().descriptor
+
+    override fun deserialize(decoder: Decoder): StringArgument {
+        return StringArgument(decoder.decodeString())
+    }
+
+    override fun serialize(encoder: Encoder, value: StringArgument) {
+        encoder.encodeString(value.value)
+    }
+}
+
+// ==========================================
+// 2. 数据模型定义
+// ==========================================
+
+@Serializable(with = ArgumentSerializer::class)
+sealed interface Argument
+
+data class StringArgument(val value: String) : Argument
+
+@Serializable
+data class RuleArgument(
+    val rules: List<Rule> = emptyList(),
+    // 官方 JSON 里 value 可能是单个字符串，也可能是字符串数组
+    val value: JsonElement
+) : Argument
+
+@Serializable
+data class Arguments(
+    val game: List<Argument> = emptyList(),
+    val jvm: List<Argument> = emptyList()
+)
+
+@Serializable
+data class AssetIndex(
+    val id: String,
+    val sha1: String,
+    val size: Int,
+    val totalSize: Int,
+    val url: String
+)
+
+@Serializable
+data class Client(
+    val sha1: String,
+    val size: Int,
+    val url: String
+)
+
+@Serializable
+data class Downloads(
+    val client: Client? = null
+    // 省略了 client_mappings, server 等不需要的字段
+)
+
+@Serializable
+data class Artifact(
+    val path: String,
+    val sha1: String,
+    val size: Int,
+    val url: String
+)
+
+@Serializable
+data class DownloadsX(
+    val artifact: Artifact? = null,
+    val classifiers: JsonObject? = null // 用于 Native 库
+)
+
+@Serializable
+data class Os(
+    val name: String? = null,
+    val arch: String? = null,
+    val version: String? = null
+)
+
+@Serializable
+data class Rule(
+    val action: String,
+    val features: Map<String, Boolean>? = null,
+    val os: Os? = null
+)
+
+@Serializable
+data class Library(
+    val name: String,
+    val downloads: DownloadsX? = null,
+    val url: String? = null, // Forge/Fabric 的库可能直接写在外层
+    val rules: List<Rule>? = null,
+    val natives: Map<String, String>? = null // 用于提取 native 分类器
+)
+
+// 最外层数据模型
+@Serializable
+data class VersionJsonModel(
+    val id: String,
+    val inheritsFrom: String? = null,
+    val type: String,
+    val mainClass: String,
+    val minecraftArguments: String? = null, // 1.12.2 及以前的旧参数格式
+    val arguments: Arguments? = null,       // 1.13 及以后的新参数格式
+    val assetIndex: AssetIndex? = null,
+    val downloads: Downloads? = null,
+    val libraries: List<Library> = emptyList()
+)
+
+// ==========================================
+// 3. 核心解析与合并逻辑类
+// ==========================================
 
 class MinecraftVersionMeta(
     targetVersion: String,
     versionsDir: File
 ) {
-    private val targetObj: JsonObject
-    private val baseObj: JsonObject?
+    // 供外部获取合并后的数据
+    val model: VersionJsonModel
+    val clientJarPath: String
+    val isLegacyArguments: Boolean
+
+    // 配置 JSON 解析器，忽略未知的键以防止反序列化崩溃
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     init {
         val targetFile = File(versionsDir, "$targetVersion/$targetVersion.json")
-        if (!targetFile.exists()) throw IllegalStateException("连版本 JSON 都找不到：${targetFile.absolutePath}")
-        targetObj = Json.parseToJsonElement(targetFile.readText()).jsonObject
+        if (!targetFile.exists()) throw IllegalStateException("版本 JSON 找不到：${targetFile.absolutePath}")
 
-        val inherits = targetObj["inheritsFrom"]?.jsonPrimitive?.content
-        if (inherits != null) {
-            val baseFile = File(versionsDir, "$inherits/$inherits.json")
+        val targetModel = json.decodeFromString<VersionJsonModel>(targetFile.readText())
+
+        if (targetModel.inheritsFrom != null) {
+            // 需要继承原版 JSON (如 Fabric / Forge)
+            val baseFile = File(versionsDir, "${targetModel.inheritsFrom}/${targetModel.inheritsFrom}.json")
             if (!baseFile.exists()) throw IllegalStateException("找不到被继承的原版 JSON：${baseFile.absolutePath}")
-            baseObj = Json.parseToJsonElement(baseFile.readText()).jsonObject
+
+            val baseModel = json.decodeFromString<VersionJsonModel>(baseFile.readText())
+            model = mergeModels(baseModel, targetModel)
+            clientJarPath = File(versionsDir, "${targetModel.inheritsFrom}/${targetModel.inheritsFrom}.jar").absolutePath
         } else {
-            baseObj = null
+            // 纯原版
+            model = targetModel
+            clientJarPath = File(versionsDir, "$targetVersion/$targetVersion.jar").absolutePath
         }
+
+        // 判断是否是老版本的参数格式
+        isLegacyArguments = model.minecraftArguments != null && model.arguments == null
     }
 
-    // 推导真实的游戏本体 Jar 路径(Fabric 没有 jar，必须用原版的 jar)
-    val baseVersion: String = targetObj["inheritsFrom"]?.jsonPrimitive?.content ?: targetVersion
-    val clientJarPath: String = File(versionsDir, "$baseVersion/$baseVersion.jar").absolutePath
+    /**
+     * 将 Mod 端的 JSON 合并到原版 JSON 上
+     */
+    private fun mergeModels(base: VersionJsonModel, target: VersionJsonModel): VersionJsonModel {
+        // 合并 Libraries
+        val mergedLibraries = mutableListOf<Library>()
+        mergedLibraries.addAll(base.libraries)
+        mergedLibraries.addAll(target.libraries)
 
-    // 无缝合并 Libraries (原版的库 + Mod端的特有库)
-    val libraries: JsonArray = buildJsonArray {
-        baseObj?.get("libraries")?.jsonArray?.forEach { add(it) }
-        targetObj["libraries"]?.jsonArray?.forEach { add(it) }
+        // 合并 Arguments
+        val mergedGameArgs = mutableListOf<Argument>()
+        val mergedJvmArgs = mutableListOf<Argument>()
+
+        base.arguments?.let {
+            mergedGameArgs.addAll(it.game)
+            mergedJvmArgs.addAll(it.jvm)
+        }
+        target.arguments?.let {
+            mergedGameArgs.addAll(it.game)
+            mergedJvmArgs.addAll(it.jvm)
+        }
+
+        val mergedArguments = Arguments(
+            game = mergedGameArgs,
+            jvm = mergedJvmArgs
+        )
+
+        return VersionJsonModel(
+            id = target.id,
+            inheritsFrom = target.inheritsFrom,
+            type = target.type,
+            // 如果 Target(如 Fabric) 覆盖了 mainClass，使用 Target 的，否则用 Base 的
+            mainClass = target.mainClass.ifBlank { base.mainClass },
+            minecraftArguments = target.minecraftArguments ?: base.minecraftArguments,
+            arguments = mergedArguments,
+            assetIndex = target.assetIndex ?: base.assetIndex,
+            downloads = target.downloads ?: base.downloads,
+            libraries = mergedLibraries
+        )
     }
 
-    // 合并 JVM 参数
-    val jvmArgs: JsonArray = buildJsonArray {
-        baseObj?.get("arguments")?.jsonObject?.get("jvm")?.jsonArray?.forEach { add(it) }
-        targetObj["arguments"]?.jsonObject?.get("jvm")?.jsonArray?.forEach { add(it) }
+    // --- 为了兼容你其他类的旧调用方式，提供一些便捷方法 ---
+
+    fun getAssetIndexId(): String {
+        return model.assetIndex?.id ?: throw IllegalStateException("缺失 assetIndex.id")
     }
 
-    // 合并 Game 参数
-    val gameArgs: JsonArray = buildJsonArray {
-        baseObj?.get("arguments")?.jsonObject?.get("game")?.jsonArray?.forEach { add(it) }
-        targetObj["arguments"]?.jsonObject?.get("game")?.jsonArray?.forEach { add(it) }
+    fun getMainClass(): String {
+        return model.mainClass.ifBlank { throw IllegalStateException("缺失 mainClass") }
     }
-
-    val minecraftArguments: String? = targetObj["minecraftArguments"]?.jsonPrimitive?.content
-        ?: baseObj?.get("minecraftArguments")?.jsonPrimitive?.content
-
-    // 提取 MainClass (如果 Mod 端覆盖了，必须用 Mod 端的！比如 KnotClient)
-    val mainClass: String = targetObj["mainClass"]?.jsonPrimitive?.content
-        ?: baseObj?.get("mainClass")?.jsonPrimitive?.content
-        ?: throw IllegalStateException("连 MainClass 都没有，启动个寂寞！")
-
-    // 提取 Asset Index
-    val assetIndex: JsonObject = targetObj["assetIndex"]?.jsonObject
-        ?: baseObj?.get("assetIndex")?.jsonObject
-        ?: throw IllegalStateException("找不到 assetIndex，贴图全废！")
-
-    // 提取 Client 本体下载链接
-    val clientDownload: JsonObject? = targetObj["downloads"]?.jsonObject?.get("client")?.jsonObject
-        ?: baseObj?.get("downloads")?.jsonObject?.get("client")?.jsonObject
 }

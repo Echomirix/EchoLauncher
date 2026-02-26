@@ -20,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import cn.echomirix.echolauncher.core.GameManager
 import cn.echomirix.echolauncher.core.LaunchContext
+import cn.echomirix.echolauncher.core.LaunchManager
+import cn.echomirix.echolauncher.core.LaunchState
+import cn.echomirix.echolauncher.core.LaunchStatus
 import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.ConfigManager
@@ -34,6 +36,7 @@ import cn.echomirix.echolauncher.data.InstallOptions
 import cn.echomirix.echolauncher.data.enabledState
 import cn.echomirix.echolauncher.data.loaderSummary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
 
@@ -46,18 +49,26 @@ class HomeScreen : TabScreen {
 
     @Composable
     override fun Content() {
-        // 观察全局启动状态
-        val launchStatus by GameManager.status.collectAsState()
-        val isGameRunning = GameManager.activeProcess?.isAlive == true
+        // 观察全局正在运行的任务列表
+        val activeTasks by LaunchManager.activeTasks.collectAsState()
+
+        // 判断全局是否有游戏在运行
+        val isAnyGameRunning = activeTasks.isNotEmpty()
 
         val appConfig = LocalAppConfig.current
-
-        // 统一写死根目录，以后再抽到全局配置或者Settings里去
         val minecraftDir = appConfig.minecraftDir
 
         var versions by remember { mutableStateOf<List<LocalVersion>>(emptyList()) }
         var selectedVersion by remember { mutableStateOf<LocalVersion?>(null) }
         var showAccountDialog by remember { mutableStateOf(false) }
+
+        val currentVersionTask = remember(activeTasks, selectedVersion) {
+            activeTasks.find { it.ctx.version == selectedVersion?.id }
+        }
+
+        val currentVersionStatus by (currentVersionTask?.status
+            ?: MutableStateFlow(LaunchStatus(LaunchState.IDLE, "等待启动"))).collectAsState()
+
 
         LaunchedEffect(minecraftDir) {
             withContext(Dispatchers.IO) {
@@ -117,10 +128,11 @@ class HomeScreen : TabScreen {
                                     selectedVersion = it
                                     ConfigManager.updateConfig { copy(selectedVersionId = it.id) }
                                 },
-                                launchStatus = launchStatus,
+                                launchStatus = currentVersionStatus,
                                 onLaunch = {
                                     if (selectedVersion != null) {
-                                        GameManager.startGame(ctx)
+                                        // 调用新的 LaunchManager 启动游戏
+                                        LaunchManager.launch(ctx)
                                     }
                                 },
                             )
@@ -143,19 +155,59 @@ class HomeScreen : TabScreen {
             }
 
             // =============== 终极武器：全局悬浮的关机按钮 ===============
-            if (isGameRunning) {
-                FloatingActionButton(
-                    onClick = { GameManager.killGame() },
+            if (isAnyGameRunning) {
+                // 控制弹出菜单的状态
+                var expanded by remember { mutableStateOf(false) }
+
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 48.dp, bottom = 48.dp),
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError
+                        .padding(end = 48.dp, bottom = 48.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PowerSettingsNew,
-                        contentDescription = "强制结束进程"
-                    )
+                    FloatingActionButton(
+                        onClick = {
+                            if (activeTasks.size == 1) {
+                                // 只有一个，直接杀
+                                activeTasks.first().stop()
+                            } else {
+                                // 有多个，展开菜单
+                                expanded = true
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PowerSettingsNew,
+                            contentDescription = "强制结束进程"
+                        )
+                    }
+
+                    // 如果有多个任务，弹出一个下拉菜单让玩家选择要杀哪个进程
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        activeTasks.forEach { task ->
+                            DropdownMenuItem(
+                                text = { Text("强制结束：${task.ctx.version}") },
+                                onClick = {
+                                    task.stop()
+                                    expanded = false
+                                }
+                            )
+                        }
+                        if (activeTasks.size > 1) {
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("结束所有游戏", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    activeTasks.forEach { it.stop() }
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
                 }
             }
             if (showAccountDialog) {

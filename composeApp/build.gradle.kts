@@ -55,9 +55,18 @@ compose.desktop {
         mainClass = "cn.echomirix.echolauncher.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Exe)
             packageName = "cn.echomirix.echolauncher"
             packageVersion = "1.0.0"
         }
+
+        buildTypes.release.proguard {
+            // 让 ProGuard 读取刚才创建的规则文件
+            configurationFiles.from(project.file("proguard-rules.pro"))
+        }
     }
+}
+
+tasks.withType<Jar> {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

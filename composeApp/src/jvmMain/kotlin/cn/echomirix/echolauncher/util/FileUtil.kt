@@ -1,14 +1,13 @@
 package cn.echomirix.echolauncher.util
 
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import cn.echomirix.echolauncher.core.Library
 
-fun parseLibraryPath(libObj: kotlinx.serialization.json.JsonObject): String? {
+fun parseLibraryPath(libObj: Library): String? {
     // 1. 优先认 Mojang 官方的标准路径
-    val downloadPath = libObj["downloads"]?.jsonObject?.get("artifact")?.jsonObject?.get("path")?.jsonPrimitive?.content
+    val downloadPath = libObj.downloads?.artifact?.path
     if (downloadPath != null) return downloadPath
 
-    val nameStr = libObj["name"]?.jsonPrimitive?.content ?: return null
+    val nameStr = libObj.name
 
     val parts = nameStr.split(":")
     if (parts.size >= 3) {
