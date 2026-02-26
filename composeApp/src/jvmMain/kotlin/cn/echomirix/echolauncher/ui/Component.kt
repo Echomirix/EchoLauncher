@@ -29,6 +29,8 @@ import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.LauncherConfig
 import cn.echomirix.echolauncher.core.download.Version
 import cn.echomirix.echolauncher.core.version.LocalVersion
+import cn.echomirix.echolauncher.ui.Screen.TabScreen
+import cn.echomirix.echolauncher.ui.Screen.VersionInstallOptionsScreen
 
 
 @Composable
@@ -366,7 +368,7 @@ fun VersionSearchBar(
                 ) {
                     FilterChip(
                         selected = onlyRelease,
-                        onClick = { onOnlyReleaseChange },
+                        onClick = onOnlyReleaseChange ,
                         label = { Text("只看 release") }
                     )
                     Text(
