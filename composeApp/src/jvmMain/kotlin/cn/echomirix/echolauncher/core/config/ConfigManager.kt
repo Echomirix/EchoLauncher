@@ -1,5 +1,6 @@
 package cn.echomirix.echolauncher.core.config
 
+import androidx.compose.runtime.compositionLocalOf
 import cn.echomirix.echolauncher.core.account.AccountType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -8,6 +9,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+
+
+val LocalAppConfig = compositionLocalOf<LauncherConfig> {
+    throw IllegalStateException("LocalAppConfig not provided. Make sure to wrap your app with CompositionLocalProvider(LocalAppConfig provides appConfig).")
+}
 
 @Serializable
 data class LauncherConfig(
@@ -18,23 +24,21 @@ data class LauncherConfig(
     val microsoftToken: String? = null, // 可选的微软登录 Token
     val littleSkinToken: String? = null,
     val accountType: AccountType = AccountType.OFFLINE,
+    val primaryColor: Long = 0xFF6750A4,
+    val subColor: Long = 0xFFFEF7F0
 )
 
 object ConfigManager {
-    // 配置文件就直接保存在运行目录下
     private val configFile = File(System.getProperty("user.dir"), "launcher_config.json")
 
-    // 配置一下 Json 序列化器，忽略未知字段防报错，并且开启美化输出
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
     }
 
-    // 让你心心念念的 Compose 完美响应式状态流！
     private val _configFlow = MutableStateFlow(LauncherConfig())
     val configFlow: StateFlow<LauncherConfig> = _configFlow.asStateFlow()
 
-    // 快捷访问属性
     var config: LauncherConfig
         get() = _configFlow.value
         private set(value) {
@@ -45,9 +49,6 @@ object ConfigManager {
         load()
     }
 
-    /**
-     * 把配置从硬盘吃进内存，如果没有就建一个！
-     */
     fun load() {
         if (configFile.exists()) {
             try {
@@ -63,9 +64,6 @@ object ConfigManager {
         }
     }
 
-    /**
-     * 把内存里的配置拉一坨到硬盘上！
-     */
     fun save() {
         try {
             configFile.writeText(json.encodeToString(config))
@@ -74,10 +72,6 @@ object ConfigManager {
         }
     }
 
-    /**
-     * 闭包更新大法，更新完不仅自动保存硬盘，还会触发 Compose 的重组！
-     * 用法：ConfigManager.updateConfig { copy(playerName = "新名字") }
-     */
     fun updateConfig(block: LauncherConfig.() -> LauncherConfig) {
         config = config.block()
         save()

@@ -1,23 +1,21 @@
 package cn.echomirix.echolauncher.core
 
-import cn.echomirix.echolauncher.core.config.AppConfig
+import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.util.parseLibraryPath
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.io.File
 
-/**
- * 环境上下文：极简模式！
- */
+
 @Serializable
 data class LaunchContext(
     val authPlayerName: String,
     val authUuid: String,
     val authAccessToken: String,
     val version: String,          // 比如 "1.20.1"
-    val minecraftDir: String,     // 唯一的基准根目录，比如 "D:/Project/Java/EchoLauncher/.minecraft"
-    val launcherName: String = AppConfig.APP_NAME,
-    val launcherVersion: String = AppConfig.APP_VERSION,
+    val minecraftDir: String,
+    val launcherName: String = AppConstant.APP_NAME,
+    val launcherVersion: String = AppConstant.APP_VERSION,
     val osName: String = getCurrentOsName(),
     val osArch: String = getCurrentOsArch(),
     val features: Map<String, Boolean> = mapOf(
@@ -28,13 +26,18 @@ data class LaunchContext(
     val resolutionHeight: String = "480",
     val isIsolated: Boolean = true, // 核心：默认开启版本隔离！
 ) {
-    val gameDirectory: String get() = if (isIsolated)
-        File(minecraftDir, "versions/$version").absolutePath
-    else
-        File(minecraftDir).absolutePath
+    val gameDirectory: String
+        get() = if (isIsolated)
+            File(minecraftDir, "versions/$version").absolutePath
+        else
+            File(minecraftDir).absolutePath
     val assetsRoot: String get() = File(minecraftDir, "assets").absolutePath
     val librariesDirectory: String get() = File(minecraftDir, "libraries").absolutePath
-    val nativesDirectory: String get() = if (isIsolated) File(gameDirectory, "$version-natives").absolutePath else File(minecraftDir, "natives").absolutePath
+    val nativesDirectory: String
+        get() = if (isIsolated) File(gameDirectory, "$version-natives").absolutePath else File(
+            minecraftDir,
+            "natives"
+        ).absolutePath
     val versionsDirectory: String get() = File(minecraftDir, "versions").absolutePath
 
     override fun toString(): String {
@@ -42,9 +45,6 @@ data class LaunchContext(
     }
 }
 
-/**
- * 终极核心：单例解析、一站式生成启动命令
- */
 class MinecraftArgBuilder(
     private val versionMeta: MinecraftVersionMeta,
     private val context: LaunchContext
@@ -70,7 +70,7 @@ class MinecraftArgBuilder(
             "\${clientid}" to "null",
             "\${auth_xuid}" to "null",
             "\${user_type}" to "msa",
-            "\${version_type}" to AppConfig.APP_ABBR,
+            "\${version_type}" to AppConstant.APP_ABBR,
             "\${resolution_width}" to context.resolutionWidth,
             "\${resolution_height}" to context.resolutionHeight,
             "\${natives_directory}" to context.nativesDirectory,
@@ -80,9 +80,6 @@ class MinecraftArgBuilder(
         )
     }
 
-    /**
-     * 构建最终的启动命令参数列表
-     */
     fun build(): List<String> {
         val hasModernArgs = versionMeta.jvmArgs.isNotEmpty() || versionMeta.gameArgs.isNotEmpty()
         val hasLegacyArgs = !versionMeta.minecraftArguments.isNullOrBlank()
@@ -99,7 +96,6 @@ class MinecraftArgBuilder(
 
             hasLegacyArgs -> {
                 // 远古版本 (≤1.12.2) 没有 arguments，对付那条 minecraftArguments 字符串
-                // 手搓 JVM 核心参数：缺哪条，游戏直接跪
                 jvmArgs += listOf(
                     "-Djava.library.path=${context.nativesDirectory}",
                     "-cp",
@@ -107,7 +103,6 @@ class MinecraftArgBuilder(
                     "-Xmx2G"
                 )
 
-                // minecraftArguments 是一整条字符串，空格切分后做宏替换
                 val legacyArgs = versionMeta.minecraftArguments
                     .split(' ')
                     .filter { it.isNotBlank() }
@@ -115,7 +110,7 @@ class MinecraftArgBuilder(
                 gameArgs.addAll(legacyArgs)
             }
 
-            else -> throw IllegalStateException("既没有 arguments 也没有 minecraftArguments，你的版本 JSON 烂透了。")
+            else -> throw IllegalStateException("既没有 arguments 也没有 minecraftArguments，无法启动")
         }
 
         return jvmArgs + listOf(versionMeta.mainClass) + gameArgs
@@ -134,7 +129,7 @@ class MinecraftArgBuilder(
             val absoluteLibFile = File(context.librariesDirectory, pathStr)
 
             if (!absoluteLibFile.exists()) {
-                println("[警告] 依赖库丢失，游戏绝对会崩溃！缺失文件: ${absoluteLibFile.absolutePath}")
+                println("[警告] 依赖库丢失，游戏可能会崩溃！缺失文件: ${absoluteLibFile.absolutePath}")
             }
 
             classpathFiles.add(absoluteLibFile.absolutePath)
@@ -142,7 +137,7 @@ class MinecraftArgBuilder(
 
         val absoluteGameJar = File(versionMeta.clientJarPath)
         if (!absoluteGameJar.exists()) {
-            throw IllegalStateException("你连游戏本体 ${versionMeta.clientJarPath} 都没有，玩空气呢？！")
+            throw IllegalStateException("找不到游戏本体 ${versionMeta.clientJarPath}！")
         }
         classpathFiles.add(absoluteGameJar.absolutePath)
 
@@ -160,6 +155,7 @@ class MinecraftArgBuilder(
                         result.add(replaceMacros(element.content))
                     }
                 }
+
                 is JsonObject -> {
                     if (checkRules(element["rules"]?.jsonArray)) {
                         val valueElement = element["value"]
@@ -170,6 +166,7 @@ class MinecraftArgBuilder(
                         }
                     }
                 }
+
                 else -> {}
             }
         }

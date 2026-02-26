@@ -33,7 +33,7 @@ object GameManager {
     fun startGame(ctx: LaunchContext) {
         if (activeProcess?.isAlive == true || _status.value.state != LaunchState.IDLE) {
             updateStatus(LaunchState.ERROR, "游戏正在运行或处于非空闲状态！")
-            // 这种防呆报错，不强制重置，等它自然死亡
+
             resetStatusAfterDelay(3000)
             return
         }
@@ -76,7 +76,6 @@ object GameManager {
                 launch(Dispatchers.IO) {
                     val successMarkers = listOf("Reloading ResourceManager", "Setting user:")
 
-                    // handler 会在命中后被换成纯打印函数
                     var handler: (String) -> Unit
 
                     handler = { line ->
@@ -103,7 +102,6 @@ object GameManager {
                 e.printStackTrace()
                 activeProcess = null
                 updateStatus(LaunchState.ERROR, "启动异常: ${e.message ?: "未知错误"}")
-                // 崩溃状态，不用强行重置，反正 activeProcess 已经是 null 了
                 resetStatusAfterDelay(5000)
             }
         }
@@ -123,14 +121,10 @@ object GameManager {
         _status.value = LaunchStatus(newState, newText)
     }
 
-    /**
-     * @param forceReset 只有在需要【无视进程死活强行切回UI】时传 true
-     */
     private fun resetStatusAfterDelay(timeMillis: Long, forceReset: Boolean = false) {
         resetJob?.cancel()
         resetJob = scope.launch {
             delay(timeMillis)
-            // 看到没？！加了 forceReset！要不然你的 isAlive 永远卡死你自己！
             if (forceReset || activeProcess?.isAlive != true) {
                 updateStatus(LaunchState.IDLE, "等待启动")
             }

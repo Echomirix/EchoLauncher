@@ -2,7 +2,7 @@ package cn.echomirix.echolauncher.core.config
 
 import java.awt.Dimension
 
-object AppConfig {
+object AppConstant {
     const val APP_NAME = "EchoLauncher"
     const val APP_ABBR = "EchoL"
     const val APP_VERSION = "1.0.0"

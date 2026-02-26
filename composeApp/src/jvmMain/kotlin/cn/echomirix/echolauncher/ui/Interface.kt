@@ -19,8 +19,9 @@ import cn.echomirix.echolauncher.core.GameManager
 import cn.echomirix.echolauncher.core.LaunchContext
 import cn.echomirix.echolauncher.core.LaunchState
 import cn.echomirix.echolauncher.core.account.AccountType
-import cn.echomirix.echolauncher.core.config.AppConfig
+import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.ConfigManager
+import cn.echomirix.echolauncher.core.config.LocalAppConfig
 import cn.echomirix.echolauncher.core.version.LocalVersion
 import cn.echomirix.echolauncher.core.version.VersionManager
 import kotlinx.coroutines.Dispatchers
@@ -42,9 +43,9 @@ class HomeScreen : IndexedScreen {
         val statusText = launchStatus.text
         val isGameRunning = GameManager.activeProcess?.isAlive == true
 
-        val appConfig by ConfigManager.configFlow.collectAsState()
+        val appConfig = LocalAppConfig.current
 
-        // 统一写死根目录，以后你再抽到全局配置或者Settings里去
+        // 统一写死根目录，以后再抽到全局配置或者Settings里去
         val minecraftDir = "D:/Project/Java/EchoLauncher/.minecraft"
 
         var versions by remember { mutableStateOf<List<LocalVersion>>(emptyList()) }
@@ -63,7 +64,6 @@ class HomeScreen : IndexedScreen {
             }
         }
 
-        // 构造你的上下文 (用下拉框动态选中的！)
         val ctx = remember(selectedVersion) {
             LaunchContext(
                 authPlayerName = appConfig.playerName,
@@ -74,17 +74,16 @@ class HomeScreen : IndexedScreen {
             )
         }
 
-        // 最外层的 Box，为了能让关机按钮悬浮在所有东西的最上面！
         Box(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Row(modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor))) {
                 // =============== 左侧：操作卡片区域 ===============
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(360.dp)
                         .padding(
-                            horizontal = AppConfig.CARD_DEFAULT_PADDING_HORIZONTAL.dp,
-                            vertical = AppConfig.CARD_DEFAULT_PADDING_VERTICAL.dp
+                            horizontal = AppConstant.CARD_DEFAULT_PADDING_HORIZONTAL.dp,
+                            vertical = AppConstant.CARD_DEFAULT_PADDING_VERTICAL.dp
                         )
                 ) {
                     Card(
@@ -95,7 +94,7 @@ class HomeScreen : IndexedScreen {
                         )
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxSize().padding(AppConfig.UI_DEFAULT_PADDING.dp)
+                            modifier = Modifier.fillMaxSize().padding(AppConstant.UI_DEFAULT_PADDING.dp)
                         ) {
                             // --- 1. 顶部：玩家信息区域 (死死钉住，不参与动画) ---
                             Row(
@@ -103,10 +102,15 @@ class HomeScreen : IndexedScreen {
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Box(
-                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(20)).background(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(20))
+                                        .background(MaterialTheme.colorScheme.primary),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Rounded.Person, contentDescription = "玩家头像", tint = MaterialTheme.colorScheme.onPrimary)
+                                    Icon(
+                                        Icons.Rounded.Person,
+                                        contentDescription = "玩家头像",
+                                        tint = MaterialTheme.colorScheme.onPrimary
+                                    )
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -116,7 +120,7 @@ class HomeScreen : IndexedScreen {
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    val typeText = when(appConfig.accountType) {
+                                    val typeText = when (appConfig.accountType) {
                                         AccountType.OFFLINE -> "离线账户"
                                         AccountType.LITTLESKIN -> "LittleSkin"
                                         else -> "Microsoft"
@@ -132,10 +136,9 @@ class HomeScreen : IndexedScreen {
                                 }
                             }
 
-                            // --- 2. 灵魂弹簧：用 Spacer 把下面的内容狠狠压在底部！ ---
                             Spacer(modifier = Modifier.weight(1f))
 
-                            // --- 3. 底部：该死的动画状态机！ ---
+                            // --- 3. 底部：动画状态机 ---
                             AnimatedContent(
                                 targetState = launchState,
                                 transitionSpec = {
@@ -164,7 +167,9 @@ class HomeScreen : IndexedScreen {
                                             // 版本信息卡片 + 下拉菜单组合
                                             Box(modifier = Modifier.fillMaxWidth()) {
                                                 Surface(
-                                                    onClick = { if (versions.isNotEmpty()) isVersionMenuExpanded = true },
+                                                    onClick = {
+                                                        if (versions.isNotEmpty()) isVersionMenuExpanded = true
+                                                    },
                                                     modifier = Modifier.fillMaxWidth(),
                                                     shape = RoundedCornerShape(12.dp),
                                                     color = MaterialTheme.colorScheme.surface
@@ -173,17 +178,23 @@ class HomeScreen : IndexedScreen {
                                                         modifier = Modifier.padding(12.dp),
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Icon(Icons.Rounded.VideogameAsset, contentDescription = "Version Icon", tint = MaterialTheme.colorScheme.primary)
+                                                        Icon(
+                                                            Icons.Rounded.VideogameAsset,
+                                                            contentDescription = "Version Icon",
+                                                            tint = MaterialTheme.colorScheme.primary
+                                                        )
                                                         Spacer(modifier = Modifier.width(16.dp))
 
                                                         Column(modifier = Modifier.weight(1f)) {
                                                             Text(
-                                                                text = selectedVersion?.id ?: if (versions.isEmpty()) "未找到版本" else "加载中...",
+                                                                text = selectedVersion?.id
+                                                                    ?: if (versions.isEmpty()) "未找到版本" else "加载中...",
                                                                 style = MaterialTheme.typography.titleSmall,
                                                                 fontWeight = FontWeight.Bold
                                                             )
                                                             Text(
-                                                                text = selectedVersion?.type ?: "请确保 versions 目录下有文件",
+                                                                text = selectedVersion?.type
+                                                                    ?: "请确保 versions 目录下有文件",
                                                                 style = MaterialTheme.typography.bodySmall,
                                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
@@ -229,12 +240,16 @@ class HomeScreen : IndexedScreen {
                                             ) {
                                                 Icon(Icons.Rounded.PlayArrow, contentDescription = "Play")
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text("开始游戏", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    "开始游戏",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             }
                                         }
                                     }
 
-                                    // 状态B：校验中或启动中 (展示圈圈)
+                                    // 状态B：校验中或启动中
                                     LaunchState.CHECKING, LaunchState.STARTING -> {
                                         Column(
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
@@ -250,7 +265,7 @@ class HomeScreen : IndexedScreen {
                                         }
                                     }
 
-                                    // 状态C：启动成功 (展示绿色大勾)
+                                    // 状态C：启动成功
                                     LaunchState.SUCCESS -> {
                                         Column(
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
@@ -291,7 +306,6 @@ class HomeScreen : IndexedScreen {
             }
 
             // =============== 终极武器：全局悬浮的关机按钮 ===============
-            // 只要进程活着，这个红色按钮就会像死神一样飘在界面右下角！
             if (isGameRunning) {
                 FloatingActionButton(
                     onClick = { GameManager.killGame() },
@@ -307,99 +321,107 @@ class HomeScreen : IndexedScreen {
                     )
                 }
             }
-        if (showAccountDialog) {
-            var tempName by remember { mutableStateOf(appConfig.playerName) }
-            var tempType by remember { mutableStateOf(appConfig.accountType) }
-            var accountMenuExpanded by remember { mutableStateOf(false) }
+            if (showAccountDialog) {
+                var tempName by remember { mutableStateOf(appConfig.playerName) }
+                var tempType by remember { mutableStateOf(appConfig.accountType) }
+                var accountMenuExpanded by remember { mutableStateOf(false) }
 
-            AlertDialog(
-                onDismissRequest = { showAccountDialog = false },
-                title = { Text("账号切换与管理", fontWeight = FontWeight.Bold) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        // 下拉菜单选类型
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = when(tempType) { AccountType.OFFLINE -> "离线模式"; AccountType.LITTLESKIN -> "LittleSkin (TODO)"; else -> "Microsoft (TODO)" },
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("登录方式") },
-                                modifier = Modifier.fillMaxWidth(),
-                                trailingIcon = {
-                                    IconButton(onClick = { accountMenuExpanded = true }) {
-                                        Icon(Icons.Rounded.ArrowDropDown, contentDescription = "展开")
+                AlertDialog(
+                    onDismissRequest = { showAccountDialog = false },
+                    title = { Text("账号切换与管理", fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            // 下拉菜单选类型
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = when (tempType) {
+                                        AccountType.OFFLINE -> "离线模式"; AccountType.LITTLESKIN -> "LittleSkin (TODO)"; else -> "Microsoft (TODO)"
+                                    },
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("登录方式") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { accountMenuExpanded = true }) {
+                                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = "展开")
+                                        }
                                     }
+                                )
+                                Surface(
+                                    modifier = Modifier.matchParentSize(),
+                                    color = Color.Transparent,
+                                    onClick = { accountMenuExpanded = true }
+                                ) {}
+
+                                DropdownMenu(
+                                    expanded = accountMenuExpanded,
+                                    onDismissRequest = { accountMenuExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("离线模式") },
+                                        onClick = { tempType = AccountType.OFFLINE; accountMenuExpanded = false })
+                                    DropdownMenuItem(
+                                        text = { Text("LittleSkin (TODO)") },
+                                        onClick = { tempType = AccountType.LITTLESKIN; accountMenuExpanded = false })
+                                    DropdownMenuItem(
+                                        text = { Text("Microsoft (TODO)") },
+                                        onClick = { tempType = AccountType.MICROSOFT; accountMenuExpanded = false })
                                 }
-                            )
-                            // 用透明遮罩拦截点击，防软键盘
-                            Surface(
-                                modifier = Modifier.matchParentSize(),
-                                color = Color.Transparent,
-                                onClick = { accountMenuExpanded = true }
-                            ) {}
-
-                            DropdownMenu(
-                                expanded = accountMenuExpanded,
-                                onDismissRequest = { accountMenuExpanded = false }
-                            ) {
-                                DropdownMenuItem(text = { Text("离线模式") }, onClick = { tempType = AccountType.OFFLINE; accountMenuExpanded = false })
-                                DropdownMenuItem(text = { Text("LittleSkin (TODO)") }, onClick = { tempType = AccountType.LITTLESKIN; accountMenuExpanded = false })
-                                DropdownMenuItem(text = { Text("Microsoft (TODO)") }, onClick = { tempType = AccountType.MICROSOFT; accountMenuExpanded = false })
                             }
-                        }
 
-                        // 离线模式专属：输入玩家ID
-                        if (tempType == AccountType.OFFLINE) {
-                            OutlinedTextField(
-                                value = tempName,
-                                onValueChange = { tempName = it },
-                                label = { Text("离线玩家 ID") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else {
-                            Text(
-                                text = "该登录方式核心逻辑暂未实现，请切回离线模式！",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = {
-                        if (tempType == AccountType.OFFLINE && tempName.isNotBlank()) {
-                            ConfigManager.updateConfig {
-                                copy(
-                                    playerName = tempName,
-                                    accountType = tempType
+                            // 离线模式专属：输入玩家ID
+                            if (tempType == AccountType.OFFLINE) {
+                                OutlinedTextField(
+                                    value = tempName,
+                                    onValueChange = { tempName = it },
+                                    label = { Text("离线玩家 ID") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                Text(
+                                    text = "该登录方式核心逻辑暂未实现，请切回离线模式！",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
-                            showAccountDialog = false
                         }
-                    }) {
-                        Text("保存并使用")
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (tempType == AccountType.OFFLINE && tempName.isNotBlank()) {
+                                ConfigManager.updateConfig {
+                                    copy(
+                                        playerName = tempName,
+                                        accountType = tempType
+                                    )
+                                }
+                                showAccountDialog = false
+                            }
+                        }) {
+                            Text("保存并使用")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAccountDialog = false }) {
+                            Text("取消")
+                        }
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showAccountDialog = false }) {
-                        Text("取消")
-                    }
-                }
-            )
+                )
+            }
         }
     }
 }
-}
-// (下面保留你原有的 DownloadScreen, SettingsScreen, AboutScreen)
 
 
 class DownloadScreen : IndexedScreen {
     override val index = 1
+
     @Composable
     override fun Content() {
+        val appConfig = LocalAppConfig.current
         Box(
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor)),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -413,10 +435,12 @@ class DownloadScreen : IndexedScreen {
 
 class SettingsScreen : IndexedScreen {
     override val index = 2
+
     @Composable
     override fun Content() {
+        val appConfig = LocalAppConfig.current
         Box(
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor)),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -430,10 +454,12 @@ class SettingsScreen : IndexedScreen {
 
 class AboutScreen : IndexedScreen {
     override val index = 3
+
     @Composable
     override fun Content() {
+        val appConfig = LocalAppConfig.current
         Box(
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor)),
             contentAlignment = Alignment.Center
         ) {
             Text(

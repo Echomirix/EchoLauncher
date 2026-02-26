@@ -14,7 +14,7 @@ fun Screen.fromScreen(): Screens {
 }
 
 enum class Screens(val title: String, val icon: ImageVector, val screen: Screen) {
-    HOME("主页", Icons.Rounded.Home, HomeScreen() ),
+    HOME("主页", Icons.Rounded.Home, HomeScreen()),
     DOWNLOAD("下载", Icons.Rounded.Download, DownloadScreen()),
     SETTINGS("设置", Icons.Rounded.Settings, SettingsScreen()),
     ABOUT("关于", Icons.Rounded.Info, AboutScreen());

@@ -24,16 +24,13 @@ class MinecraftDependencyVerifier(
     private val versionMeta: MinecraftVersionMeta,
     private val librariesDirectory: String,
     private val assetsDirectory: String,
-    private val nativesDirectory: String, // ！！！新加的保命参数：专门放解压后的 dll/so
+    private val nativesDirectory: String,
     private val currentOsName: String = getCurrentOsName(),
     private val currentOsArch: String = getCurrentOsArch()
 ) {
 
-    /**
-     * 一键校验并下载所有缺失依赖！
-     */
     suspend fun verifyAndDownloadAll() = coroutineScope {
-        println("[校验] 开始地狱级的文件审查...")
+        println("[校验] 开始文件审查...")
 
         // 1. 校验游戏本体 (Client Jar)
         val clientUrl = versionMeta.clientDownload?.get("url")?.jsonPrimitive?.content
@@ -46,12 +43,11 @@ class MinecraftDependencyVerifier(
         val nativesDirFile = File(nativesDirectory)
         if (!nativesDirFile.exists()) nativesDirFile.mkdirs()
 
-        // 2. 校验依赖库 (Libraries) - 开启疯狂并发模式！
+        // 2. 校验依赖库 (Libraries) - 开启并发模式
         val libJobs = mutableListOf<Deferred<Unit>>()
         for (libElement in versionMeta.libraries) {
             val libObj = libElement.jsonObject
 
-            // 必须过规则！
             if (!checkLibraryRules(libObj["rules"]?.jsonArray)) continue
             val nativesObj = libObj["natives"]?.jsonObject
 
@@ -70,14 +66,14 @@ class MinecraftDependencyVerifier(
             }
 
 
-            // 【线路B】：挖掘并下载 Native 库！(你落下的天坑！)
+            // 【线路B】：挖掘并下载 Native 库
 
             if (nativesObj != null) {
                 val rawClassifier = nativesObj[currentOsName]?.jsonPrimitive?.content
                 if (rawClassifier != null) {
-                    // Mojang 喜欢把 32/64 位写成 ${arch}
                     val classifierKey = rawClassifier.replace($$"${arch}", if (currentOsArch == "x86") "32" else "64")
-                    val classifierObj = libObj["downloads"]?.jsonObject?.get("classifiers")?.jsonObject?.get(classifierKey)?.jsonObject
+                    val classifierObj =
+                        libObj["downloads"]?.jsonObject?.get("classifiers")?.jsonObject?.get(classifierKey)?.jsonObject
 
                     if (classifierObj != null) {
                         val pathStr = classifierObj["path"]?.jsonPrimitive?.content
@@ -88,7 +84,6 @@ class MinecraftDependencyVerifier(
                             val targetFile = File(librariesDirectory, pathStr)
                             libJobs.add(async(Dispatchers.IO) {
                                 verifyOrDownloadFile(targetFile, urlStr, sha1Str, "Native库: $pathStr")
-                                // ！！！下完之后必须把里面的 dll/so/dylib 给掏出来扔进 natives 里！！！
                                 extractNatives(targetFile, nativesDirFile)
                             })
                         }
@@ -189,7 +184,6 @@ class MinecraftDependencyVerifier(
         try {
             ZipFile(jarFile).use { zip ->
                 zip.entries().asSequence().forEach { entry ->
-                    // 屏蔽无用文件，只要本体 dll/so
                     if (!entry.isDirectory && !entry.name.startsWith("META-INF/")) {
                         val outFile = File(destDir, entry.name)
                         outFile.parentFile?.mkdirs()
