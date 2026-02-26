@@ -34,7 +34,7 @@ fun LauncherNavBar(
         modifier = Modifier.fillMaxWidth().height(AppConstant.NAVBAR_HEIGHT.dp)
             .background(MaterialTheme.colorScheme.surface),
     ) {
-        Screens.entries.forEach { s ->
+        Screens.entries.filter { it != Screens.UNKNOWN }.forEach { s ->
             NavigationBarItem(
                 selected = currentScreen == s,
                 onClick = { onScreenSelected(s) },
@@ -74,17 +74,46 @@ fun DirectionalTabTransition(navigator: Navigator) {
     AnimatedContent(
         targetState = navigator.lastItem,
         transitionSpec = {
-            val initialIndex = (initialState as? IndexedScreen)?.index ?: 0
-            val targetIndex = (targetState as? IndexedScreen)?.index ?: 0
+            val initialIsTab = initialState is TabScreen
+            val targetIsTab = targetState is TabScreen
 
-            val direction = if (targetIndex > initialIndex) 1 else -1
+            // Tab <-> Tab：保持你原来的左右滑动
+            if (initialIsTab && targetIsTab) {
+                val initialIndex = (initialState as TabScreen).index
+                val targetIndex = (targetState as TabScreen).index
+                val direction = if (targetIndex > initialIndex) 1 else -1
 
-            (slideInHorizontally { width -> direction * width } + fadeIn()) togetherWith
-                    (slideOutHorizontally { width -> -direction * width } + fadeOut())
+                (slideInHorizontally { width -> direction * width } + fadeIn()) togetherWith
+                        (slideOutHorizontally { width -> -direction * width } + fadeOut())
+            } else {
+                // Tab -> Screen：从上到下覆盖切入（像“下拉面板”盖住 Tab）
+                // Screen -> Tab：从下到上抽出（像“面板”被拉回去）
+                val isTabToScreen = initialIsTab
+                val isScreenToTab = !initialIsTab && targetIsTab
+
+                when {
+                    isTabToScreen -> {
+                        // 新页面从上往下盖住
+                        (slideInVertically { fullHeight -> -fullHeight } + fadeIn()) togetherWith
+                                (fadeOut())
+                    }
+
+                    isScreenToTab -> {
+                        // Tab 从下往上“抽出”出现（旧 Screen 向上退场）
+                        fadeIn() togetherWith
+                                (slideOutVertically { fullHeight -> -fullHeight } + fadeOut())
+                    }
+
+                    else -> {
+                        // Screen -> Screen：当作同层 push/pop（默认：从下往上推入，往下退出）
+                        (slideInVertically { fullHeight -> fullHeight } + fadeIn()) togetherWith
+                                (slideOutVertically { fullHeight -> -fullHeight } + fadeOut())
+                    }
+                }
+            }
         },
         label = "DirectionalTabTransition"
     ) { screen ->
-        // 交还给 Voyager 去管理页面的生命周期和状态恢复
         navigator.saveableState("transition", screen) {
             screen.Content()
         }

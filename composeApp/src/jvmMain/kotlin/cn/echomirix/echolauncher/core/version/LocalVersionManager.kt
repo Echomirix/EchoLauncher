@@ -15,8 +15,7 @@ data class LocalVersion(
     val releaseTime: String? = null
 )
 
-object VersionManager {
-        // 加上 suspend，逼着你在协程里调它！
+object LocalVersionManager {
         suspend fun scanLocalVersions(minecraftDir: String): List<LocalVersion> = withContext(Dispatchers.IO) {
                 val versionDir = File(minecraftDir, "versions")
                 if (!versionDir.exists() || !versionDir.isDirectory) {
@@ -26,7 +25,6 @@ object VersionManager {
 
                 val subDirs = versionDir.listFiles { it.isDirectory } ?: return@withContext emptyList()
 
-                // 开启疯狂并发模式：每个文件夹分配一个协程去读 JSON！
                 val deferredVersions = subDirs.map { dir ->
                         async {
                                 val jsonFile = File(dir, "${dir.name}.json")
@@ -47,7 +45,6 @@ object VersionManager {
                         }
                 }
 
-                // 等待所有协程执行完毕，过滤掉 null 的废件，再排个序
                 return@withContext deferredVersions.awaitAll().filterNotNull().sortedByDescending { it.id }
         }
 }

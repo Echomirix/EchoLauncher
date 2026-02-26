@@ -21,4 +21,6 @@ object AppConstant {
     const val UI_DEFAULT_PADDING = 20
     const val CARD_DEFAULT_PADDING_HORIZONTAL = 40
     const val CARD_DEFAULT_PADDING_VERTICAL = 30
+
+    const val VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 }

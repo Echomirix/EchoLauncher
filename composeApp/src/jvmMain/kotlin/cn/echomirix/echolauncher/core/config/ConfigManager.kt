@@ -30,7 +30,8 @@ data class LauncherConfig(
     val littleSkinToken: String? = null,
     val accountType: AccountType = AccountType.OFFLINE,
     val primaryColor: Long = 0xFF6750A4,
-    val subColor: Long = 0xFFFEF7F0
+    val subColor: Long = 0xFFFEF7F0,
+    val minecraftDir: String = File(System.getProperty("user.dir"), ".minecraft").absolutePath
 )
 
 object ConfigManager {
@@ -41,6 +42,7 @@ object ConfigManager {
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
+        encodeDefaults = true
     }
 
     private val _configFlow = MutableStateFlow(LauncherConfig())

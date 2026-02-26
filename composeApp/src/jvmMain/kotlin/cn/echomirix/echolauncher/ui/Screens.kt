@@ -10,13 +10,14 @@ import cafe.adriel.voyager.core.screen.Screen
 import cn.echomirix.echolauncher.ui.Screens.entries
 
 fun Screen.fromScreen(): Screens {
-    return entries.find { it.screen::class == this::class } ?: Screens.HOME
+    return entries.find { it.screen::class == this::class } ?: Screens.UNKNOWN
 }
 
 enum class Screens(val title: String, val icon: ImageVector, val screen: Screen) {
     HOME("主页", Icons.Rounded.Home, HomeScreen()),
     DOWNLOAD("下载", Icons.Rounded.Download, DownloadScreen()),
     SETTINGS("设置", Icons.Rounded.Settings, SettingsScreen()),
-    ABOUT("关于", Icons.Rounded.Info, AboutScreen());
+    ABOUT("关于", Icons.Rounded.Info, AboutScreen()),
+    UNKNOWN("未知", Icons.Rounded.Info, HomeScreen());
 
 }

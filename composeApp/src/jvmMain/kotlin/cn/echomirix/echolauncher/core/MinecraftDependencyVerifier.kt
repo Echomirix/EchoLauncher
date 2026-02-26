@@ -1,11 +1,9 @@
 package cn.echomirix.echolauncher.core
 
-import cn.echomirix.echolauncher.util.parseLibraryPath
+import cn.echomirix.echolauncher.util.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import java.io.File
-import java.net.URL
-import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 
@@ -159,22 +157,7 @@ class MinecraftDependencyVerifier(
         size?.let { if (file.length() != it) throw IllegalStateException("文件尺寸不符: $path") }
     }
 
-    private fun calculateSha1(file: File): String = digest(file, "SHA-1")
-    private fun calculateSha256(file: File): String = digest(file, "SHA-256")
-    private fun calculateSha512(file: File): String = digest(file, "SHA-512")
-    private fun calculateMd5(file: File): String = digest(file, "MD5")
 
-    private fun digest(file: File, algo: String): String {
-        val digest = MessageDigest.getInstance(algo)
-        file.inputStream().use { fis ->
-            val buffer = ByteArray(8192)
-            var read: Int
-            while (fis.read(buffer).also { read = it } != -1) {
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
 
     /**
      * 暴力解压 Native 文件
@@ -246,19 +229,7 @@ class MinecraftDependencyVerifier(
         }
     }
 
-    private fun downloadFile(urlStr: String, targetFile: File) {
-        try {
-            targetFile.parentFile?.mkdirs()
-            URL(urlStr).openStream().use { input ->
-                targetFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        } catch (e: Exception) {
-            targetFile.delete()
-            throw e
-        }
-    }
+
 
     private fun checkLibraryRules(rulesArray: JsonArray?): Boolean {
         if (rulesArray == null || rulesArray.isEmpty()) return true
