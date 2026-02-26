@@ -74,7 +74,7 @@ object GameManager {
                 println("启动命令: ${command.joinToString(" ")}")
 
                 launch(Dispatchers.IO) {
-                    val successMarkers = listOf("Reloading ResourceManager", "Setting user:")
+                    val successMarkers = listOf("Reloading ResourceManager")
 
                     var handler: (String) -> Unit
 

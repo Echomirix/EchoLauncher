@@ -1,23 +1,21 @@
 package cn.echomirix.echolauncher.ui
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.screen.Screen
 import cn.echomirix.echolauncher.core.GameManager
 import cn.echomirix.echolauncher.core.LaunchContext
-import cn.echomirix.echolauncher.core.LaunchState
 import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.ConfigManager
@@ -39,8 +37,6 @@ class HomeScreen : IndexedScreen {
     override fun Content() {
         // 观察全局启动状态
         val launchStatus by GameManager.status.collectAsState()
-        val launchState = launchStatus.state
-        val statusText = launchStatus.text
         val isGameRunning = GameManager.activeProcess?.isAlive == true
 
         val appConfig = LocalAppConfig.current
@@ -50,7 +46,6 @@ class HomeScreen : IndexedScreen {
 
         var versions by remember { mutableStateOf<List<LocalVersion>>(emptyList()) }
         var selectedVersion by remember { mutableStateOf<LocalVersion?>(null) }
-        var isVersionMenuExpanded by remember { mutableStateOf(false) }
         var showAccountDialog by remember { mutableStateOf(false) }
 
         LaunchedEffect(minecraftDir) {
@@ -97,197 +92,28 @@ class HomeScreen : IndexedScreen {
                             modifier = Modifier.fillMaxSize().padding(AppConstant.UI_DEFAULT_PADDING.dp)
                         ) {
                             // --- 1. 顶部：玩家信息区域 (死死钉住，不参与动画) ---
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(20))
-                                        .background(MaterialTheme.colorScheme.primary),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.Person,
-                                        contentDescription = "玩家头像",
-                                        tint = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = appConfig.playerName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    val typeText = when (appConfig.accountType) {
-                                        AccountType.OFFLINE -> "离线账户"
-                                        AccountType.LITTLESKIN -> "LittleSkin"
-                                        else -> "Microsoft"
-                                    }
-                                    Text(
-                                        text = typeText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(onClick = { showAccountDialog = true }) {
-                                    Icon(Icons.Rounded.SwitchAccount, contentDescription = "切换账号")
-                                }
+                            UserProfileCard(appConfig) {
+                                showAccountDialog = true
                             }
 
                             Spacer(modifier = Modifier.weight(1f))
 
                             // --- 3. 底部：动画状态机 ---
-                            AnimatedContent(
-                                targetState = launchState,
-                                transitionSpec = {
-                                    (fadeIn() + slideInVertically { height -> height / 2 }) togetherWith
-                                            (fadeOut() + slideOutVertically { height -> -height / 2 })
+                            LaunchActionArea(
+                                versions = versions,
+                                selectedVersion = selectedVersion,
+                                onVersionSelected = {
+                                    selectedVersion = it
+                                    ConfigManager.updateConfig { copy(selectedVersionId = it.id) }
                                 },
-                                label = "LaunchStateAnimation",
-                                modifier = Modifier.fillMaxWidth()
-                            ) { state ->
-                                when (state) {
-                                    // 状态A：闲置或报错 (展示下拉框和启动按钮)
-                                    LaunchState.IDLE, LaunchState.ERROR -> {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            // 报错提示
-                                            if (state == LaunchState.ERROR) {
-                                                Text(
-                                                    text = statusText,
-                                                    color = MaterialTheme.colorScheme.error,
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                            }
-
-                                            // 版本信息卡片 + 下拉菜单组合
-                                            Box(modifier = Modifier.fillMaxWidth()) {
-                                                Surface(
-                                                    onClick = {
-                                                        if (versions.isNotEmpty()) isVersionMenuExpanded = true
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    shape = RoundedCornerShape(12.dp),
-                                                    color = MaterialTheme.colorScheme.surface
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(12.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Rounded.VideogameAsset,
-                                                            contentDescription = "Version Icon",
-                                                            tint = MaterialTheme.colorScheme.primary
-                                                        )
-                                                        Spacer(modifier = Modifier.width(16.dp))
-
-                                                        Column(modifier = Modifier.weight(1f)) {
-                                                            Text(
-                                                                text = selectedVersion?.id
-                                                                    ?: if (versions.isEmpty()) "未找到版本" else "加载中...",
-                                                                style = MaterialTheme.typography.titleSmall,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                            Text(
-                                                                text = selectedVersion?.type
-                                                                    ?: "请确保 versions 目录下有文件",
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                            )
-                                                        }
-
-                                                        IconButton(onClick = { /* TODO: 版本设置 */ }) {
-                                                            Icon(Icons.Rounded.Settings, contentDescription = "设置")
-                                                        }
-                                                    }
-                                                }
-
-                                                DropdownMenu(
-                                                    expanded = isVersionMenuExpanded,
-                                                    onDismissRequest = { isVersionMenuExpanded = false },
-                                                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                                                ) {
-                                                    versions.forEach { ver ->
-                                                        DropdownMenuItem(
-                                                            text = {
-                                                                Text(
-                                                                    text = ver.id,
-                                                                    fontWeight = if (ver.id == selectedVersion?.id) FontWeight.Bold else FontWeight.Normal,
-                                                                    color = if (ver.id == selectedVersion?.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                                )
-                                                            },
-                                                            onClick = {
-                                                                selectedVersion = ver
-                                                                isVersionMenuExpanded = false
-                                                                ConfigManager.updateConfig {
-                                                                    copy(selectedVersionId = ver.id)
-                                                                }
-                                                            }
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            // 启动按钮
-                                            Button(
-                                                onClick = { GameManager.startGame(ctx) },
-                                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                                                shape = RoundedCornerShape(12.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play")
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    "开始游戏",
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
+                                launchStatus = launchStatus,
+                                onLaunch = {
+                                    if (selectedVersion != null) {
+                                        GameManager.startGame(ctx)
                                     }
+                                },
+                            )
 
-                                    // 状态B：校验中或启动中
-                                    LaunchState.CHECKING, LaunchState.STARTING -> {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                            Text(
-                                                text = statusText,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-
-                                    // 状态C：启动成功
-                                    LaunchState.SUCCESS -> {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.CheckCircle,
-                                                contentDescription = "Success",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(64.dp)
-                                            )
-                                            Text(
-                                                text = statusText,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }

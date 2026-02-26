@@ -2,13 +2,18 @@ package cn.echomirix.echolauncher.core.config
 
 import androidx.compose.runtime.compositionLocalOf
 import cn.echomirix.echolauncher.core.account.AccountType
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 
 val LocalAppConfig = compositionLocalOf<LauncherConfig> {
@@ -30,6 +35,8 @@ data class LauncherConfig(
 
 object ConfigManager {
     private val configFile = File(System.getProperty("user.dir"), "launcher_config.json")
+    private val configScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val writeMutex = Mutex()
 
     private val json = Json {
         prettyPrint = true
@@ -56,24 +63,46 @@ object ConfigManager {
                 println("[Config] 成功读取本地配置！$config")
             } catch (e: Exception) {
                 println("[Config] 配置文件解析失败！复默认配置！异常: ${e.message}")
-                save()
+                configScope.launch { save() }
             }
         } else {
             println("[Config] 找不到配置文件，自动生成初始配置...")
-            save()
+            configScope.launch { save() }
         }
     }
 
-    fun save() {
-        try {
-            configFile.writeText(json.encodeToString(config))
-        } catch (e: Exception) {
-            println("[Config] 配置文件写入失败，你是不是没给读写权限？异常: ${e.message}")
+    private suspend fun save() {
+        writeMutex.withLock {
+            withContext(Dispatchers.IO) {
+                try {
+                    val jsonStr = json.encodeToString(config)
+
+                    // 1. 先写到一个临时文件里 (.tmp)
+                    val tmpFile = File(configFile.parentFile, "${configFile.name}.tmp")
+                    tmpFile.writeText(jsonStr)
+
+                    // 2. 用 NIO 的原子级移动覆盖原文件！
+                    // 这样就算在写 tmp 的时候断电，原本的 config.json 也毫发无损！
+                    Files.move(
+                        tmpFile.toPath(),
+                        configFile.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE
+                    )
+                } catch (e: Exception) {
+                    println("配置保存惨遭滑铁卢: ${e.message}")
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun updateConfig(block: LauncherConfig.() -> LauncherConfig) {
-        config = config.block()
-        save()
+        _configFlow.value = _configFlow.value.block()
+        println("[Config] 配置已更新")
+        // 不要阻塞 UI 线程，让后台去排队存文件
+        configScope.launch {
+            save()
+        }
     }
 }
