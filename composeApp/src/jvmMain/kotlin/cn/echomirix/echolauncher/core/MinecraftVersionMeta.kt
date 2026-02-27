@@ -162,7 +162,8 @@ class MinecraftVersionMeta(
 
             val baseModel = json.decodeFromString<VersionJsonModel>(baseFile.readText())
             model = mergeModels(baseModel, targetModel)
-            clientJarPath = File(versionsDir, "${targetModel.inheritsFrom}/${targetModel.inheritsFrom}.jar").absolutePath
+            clientJarPath =
+                File(versionsDir, "${targetModel.inheritsFrom}/${targetModel.inheritsFrom}.jar").absolutePath
         } else {
             // 纯原版
             model = targetModel

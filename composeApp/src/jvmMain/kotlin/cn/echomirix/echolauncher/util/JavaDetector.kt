@@ -1,5 +1,6 @@
 package cn.echomirix.echolauncher.util
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,6 +28,9 @@ data class JavaInfo(
 
 object JavaDetector {
 
+
+    private val logger = KotlinLogging.logger {}
+
     /**
      * 核心暴露方法：扫描本机所有有效的 Java 路径
      */
@@ -44,7 +48,9 @@ object JavaDetector {
         // 3. 解析 PATH 环境变量中带有 java 的路径
         System.getenv("PATH")?.split(File.pathSeparator)?.forEach { pathStr ->
             val file = File(pathStr)
-            if (file.exists() && (file.name.equals("bin", ignoreCase = true) || file.list()?.contains(getJavaExecutableName()) == true)) {
+            if (file.exists() && (file.name.equals("bin", ignoreCase = true) || file.list()
+                    ?.contains(getJavaExecutableName()) == true)
+            ) {
                 // 如果是 bin 目录，我们把它的父目录当做 Java Home
                 if (file.name.equals("bin", ignoreCase = true)) {
                     possiblePaths.add(file.parentFile)
@@ -147,7 +153,7 @@ object JavaDetector {
                 )
             }
         } catch (e: Exception) {
-            println("测试 Java 路径失败: $javaPath -> ${e.message}")
+            logger.error { "测试 Java 路径失败: $javaPath -> ${e.message}" }
         }
         return null
     }

@@ -17,13 +17,17 @@ import cn.echomirix.echolauncher.core.config.ConfigManager
 import cn.echomirix.echolauncher.core.config.LocalAppConfig
 import cn.echomirix.echolauncher.ui.ColorSettingRow
 import cn.echomirix.echolauncher.ui.JavaSettingRow
+import io.github.oshai.kotlinlogging.KotlinLogging
+
 class SettingsScreen : TabScreen {
+
+    private val logger = KotlinLogging.logger {}
     override val index = 2
 
     @Composable
     override fun Content() {
         val appConfig = LocalAppConfig.current
-        
+
         var draftConfig by remember(appConfig) { mutableStateOf(appConfig.copy()) }
 
         val isModified = draftConfig != appConfig
@@ -35,7 +39,7 @@ class SettingsScreen : TabScreen {
             onDispose {
                 // 当此界面从导航栈中被移除或被其他 Tab 盖住（如果不再进行组合）时触发
                 if (currentIsModified) {
-                    println("[SettingsScreen] 检测到未保存的更改，离开页面时自动保存...")
+                    logger.info { "检测到未保存的更改，离开页面时自动保存..." }
                     ConfigManager.updateConfig { currentDraft.copy() }
                 }
             }
@@ -171,8 +175,10 @@ class SettingsScreen : TabScreen {
                     // “撤销更改”按钮（仅在悬停时显示）
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isHovered,
-                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
-                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 })
+                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(
+                            initialOffsetY = { it / 2 }),
+                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(
+                            targetOffsetY = { it / 2 })
                     ) {
                         SmallFloatingActionButton(
                             onClick = {

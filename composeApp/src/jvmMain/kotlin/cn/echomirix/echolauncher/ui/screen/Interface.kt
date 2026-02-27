@@ -13,7 +13,7 @@ import cafe.adriel.voyager.core.screen.Screen
 import cn.echomirix.echolauncher.core.config.LocalAppConfig
 
 
-public interface TabScreen : Screen {
+interface TabScreen : Screen {
     val index: Int
 }
 

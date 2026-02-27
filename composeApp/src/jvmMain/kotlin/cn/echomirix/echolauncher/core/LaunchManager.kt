@@ -40,7 +40,8 @@ object LaunchManager {
     }
 
     fun reportCrash(versionName: String, exitCode: Int, description: String?, logFile: File?) {
-        val report = CrashReport(versionName = versionName, exitCode = exitCode, description = description, logFile = logFile)
+        val report =
+            CrashReport(versionName = versionName, exitCode = exitCode, description = description, logFile = logFile)
         _crashReports.value += report
     }
 

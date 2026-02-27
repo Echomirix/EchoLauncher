@@ -1,6 +1,7 @@
 package cn.echomirix.echolauncher.core
 
 import cn.echomirix.echolauncher.core.config.AppConstant
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -49,6 +50,9 @@ class MinecraftArgBuilder(
     private val versionMeta: MinecraftVersionMeta,
     private val context: LaunchContext
 ) {
+
+
+    private val logger = KotlinLogging.logger {}
 
     private val assetsIndexName: String by lazy {
         versionMeta.getAssetIndexId()
@@ -106,9 +110,9 @@ class MinecraftArgBuilder(
                 )
 
                 val legacyArgs = versionMeta.model.minecraftArguments
-                    ?.split(' ')
-                    ?.filter { it.isNotBlank() }
-                    ?.map { replaceMacros(it) } ?: emptyList()
+                    .split(' ')
+                    .filter { it.isNotBlank() }
+                    .map { replaceMacros(it) }
 
                 gameArgs.addAll(legacyArgs)
             }
@@ -130,13 +134,15 @@ class MinecraftArgBuilder(
                 ?: cn.echomirix.echolauncher.util.parseLibraryPath(lib) // 假设你有一个根据 name 比如 org.ow2.asm:asm:9.9 推导路径的工具方法
 
             if (pathStr == null) continue
-            var absoluteLibFile : File
+            var absoluteLibFile: File
             if (lib.natives == null) {
-               absoluteLibFile = File(context.librariesDirectory, pathStr)
-            } else {continue}
+                absoluteLibFile = File(context.librariesDirectory, pathStr)
+            } else {
+                continue
+            }
 
             if (!absoluteLibFile.exists()) {
-                println("[警告] 依赖库丢失，游戏可能会崩溃！缺失文件: ${absoluteLibFile.absolutePath}")
+                logger.warn { "依赖库丢失，游戏可能会崩溃！缺失文件: ${absoluteLibFile.absolutePath}" }
             }
 
             classpathFiles.add(absoluteLibFile.absolutePath)

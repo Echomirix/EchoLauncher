@@ -42,6 +42,9 @@ kotlin {
             implementation("cafe.adriel.voyager:voyager-navigator:1.0.0")
             implementation("cafe.adriel.voyager:voyager-screenmodel:1.0.0")
             implementation("cafe.adriel.voyager:voyager-transitions:1.0.0")
+            implementation("io.github.oshai:kotlin-logging-jvm:7.0.0")
+            implementation("org.slf4j:slf4j-api:2.0.13")
+            implementation("ch.qos.logback:logback-classic:1.5.6")
             // commonMain.dependencies 中：
             implementation("io.coil-kt.coil3:coil-compose:3.0.0-alpha06")
             implementation("io.coil-kt.coil3:coil-network-ktor:3.0.0-alpha06")

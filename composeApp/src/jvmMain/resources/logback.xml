@@ -1,0 +1,38 @@
+<configuration>
+
+    <!-- 定义日志存储路径：存放在启动器运行目录的 logs 文件夹下 -->
+    <property name="LOG_DIR" value="logs" />
+
+    <!-- 控制台输出配置 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %.-1level [%logger{0}] - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 文件输出配置：支持按天和大小自动滚动，防止日志文件撑爆硬盘 -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/launcher.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 每天滚动一次日志文件 -->
+            <fileNamePattern>${LOG_DIR}/launcher-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <!-- 保留 7 天的日志 -->
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %.-1level [%logger{0}] - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 设置根日志级别为 INFO，屏蔽掉过多的底层 DEBUG 噪音 -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILE" />
+    </root>
+
+    <!-- 你可以单独调整某个类的日志级别 -->
+    <logger name="cn.echomirix.echolauncher" level="DEBUG" />
+    <!-- 屏蔽 Ktor 底层无关痛痒的繁琐日志 -->
+    <logger name="io.ktor" level="INFO" />
+
+</configuration>

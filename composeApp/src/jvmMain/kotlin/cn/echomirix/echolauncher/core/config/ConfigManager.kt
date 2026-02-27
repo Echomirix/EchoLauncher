@@ -3,6 +3,7 @@ package cn.echomirix.echolauncher.core.config
 import androidx.compose.runtime.compositionLocalOf
 import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.util.JavaInfo
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,10 +35,12 @@ data class LauncherConfig(
     val subColor: Long = 0xFFFEF7F0,
     val minecraftDir: String = File(System.getProperty("user.dir"), ".minecraft").absolutePath,
     val javaPath: String = "",
-    val javaList : List<JavaInfo> = emptyList()
+    val javaList: List<JavaInfo> = emptyList()
 )
 
 object ConfigManager {
+
+    private val logger = KotlinLogging.logger {}
     private val configFile = File(System.getProperty("user.dir"), "launcher_config.json")
     private val configScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val writeMutex = Mutex()
@@ -65,13 +68,13 @@ object ConfigManager {
         if (configFile.exists()) {
             try {
                 config = json.decodeFromString(configFile.readText())
-                println("[Config] 成功读取本地配置！")
+                logger.info { "成功读取本地配置！" }
             } catch (e: Exception) {
-                println("[Config] 配置文件解析失败！复默认配置！异常: ${e.message}")
+                logger.error { "配置文件解析失败！复默认配置！异常: ${e.message}" }
                 configScope.launch { save() }
             }
         } else {
-            println("[Config] 找不到配置文件，自动生成初始配置...")
+            logger.info { "找不到配置文件，自动生成初始配置..." }
             configScope.launch { save() }
         }
     }
@@ -92,7 +95,7 @@ object ConfigManager {
                         StandardCopyOption.ATOMIC_MOVE
                     )
                 } catch (e: Exception) {
-                    println("配置保存失败: ${e.message}")
+                    logger.error { "配置保存失败: ${e.message}" }
                     e.printStackTrace()
                 }
             }
@@ -101,7 +104,7 @@ object ConfigManager {
 
     fun updateConfig(block: LauncherConfig.() -> LauncherConfig) {
         _configFlow.value = _configFlow.value.block()
-        println("[Config] 配置已更新")
+        logger.info { "配置已更新" }
         configScope.launch {
             save()
         }

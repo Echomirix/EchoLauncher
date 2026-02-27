@@ -31,6 +31,7 @@ import cn.echomirix.echolauncher.core.config.ConfigManager
 import cn.echomirix.echolauncher.core.config.LauncherConfig
 import cn.echomirix.echolauncher.core.download.Version
 import cn.echomirix.echolauncher.core.version.LocalVersion
+import cn.echomirix.echolauncher.ui.screen.DownloadTab
 import cn.echomirix.echolauncher.ui.screen.TabScreen
 import cn.echomirix.echolauncher.ui.screen.VersionInstallOptionsScreen
 import cn.echomirix.echolauncher.util.JavaDetector
@@ -373,7 +374,7 @@ fun VersionSearchBar(
                 ) {
                     FilterChip(
                         selected = onlyRelease,
-                        onClick = onOnlyReleaseChange ,
+                        onClick = onOnlyReleaseChange,
                         label = { Text("只看 release") }
                     )
                     Text(
@@ -621,7 +622,12 @@ fun JavaSettingRow(
                 ) {
                     if (scannedJavas.isEmpty()) {
                         DropdownMenuItem(
-                            text = { Text("没有扫描记录，请点击右侧按钮扫描", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            text = {
+                                Text(
+                                    "没有扫描记录，请点击右侧按钮扫描",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
                             onClick = { expanded = false }
                         )
                     } else {
@@ -674,7 +680,7 @@ fun JavaSettingRow(
                             scannedJavas = JavaDetector.scanLocalJava()
                             isScanning = false
                             expanded = true // 扫描完自动展开下拉框展示结果
-                            ConfigManager.updateConfig { copy(javaList = scannedJavas)}
+                            ConfigManager.updateConfig { copy(javaList = scannedJavas) }
 
                         }
                     }
@@ -695,6 +701,41 @@ fun JavaSettingRow(
                     Text(if (scannedJavas.isEmpty()) "自动扫描" else "已找到 ${scannedJavas.size} 个")
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun DownloadSideBar(
+    currentTab: DownloadTab,
+    onTabSelected: (DownloadTab) -> Unit
+) {
+    // NavigationRail 专门用于大屏/桌面端左侧导航
+    NavigationRail(
+        // 给它一个固定的宽度，或者使用默认的填充
+        modifier = Modifier.width(100.dp).fillMaxHeight(),
+        // 如果想让它稍微有一点底色区分，可以设置 containerColor
+        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+    ) {
+        // 顶部可以放个小留白或者标题
+        Spacer(modifier = Modifier.height(16.dp))
+
+        DownloadTab.entries.forEach { tab ->
+            NavigationRailItem(
+                selected = currentTab == tab,
+                onClick = { onTabSelected(tab) },
+                icon = { Icon(tab.icon, contentDescription = tab.title) },
+                label = { Text(tab.title) },
+                // 启用总是显示 Label，这样空间大时更好看
+                alwaysShowLabel = true,
+                // 配置颜色，选中时高亮
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+            Spacer(modifier = Modifier.height(8.dp)) // 每个按钮之间留点缝隙
         }
     }
 }

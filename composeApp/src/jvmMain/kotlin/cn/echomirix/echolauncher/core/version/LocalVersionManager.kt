@@ -1,5 +1,6 @@
 package cn.echomirix.echolauncher.core.version
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,10 +17,12 @@ data class LocalVersion(
 )
 
 object LocalVersionManager {
+
+    private val logger = KotlinLogging.logger {}
     suspend fun scanLocalVersions(minecraftDir: String): List<LocalVersion> = withContext(Dispatchers.IO) {
         val versionDir = File(minecraftDir, "versions")
         if (!versionDir.exists() || !versionDir.isDirectory) {
-            println("版本目录不存在或不是一个文件夹：${versionDir.absolutePath}")
+            logger.error { "版本目录不存在或不是一个文件夹：${versionDir.absolutePath}" }
             return@withContext emptyList()
         }
 
@@ -38,7 +41,7 @@ object LocalVersionManager {
 
                         LocalVersion(id, type, releaseTime)
                     } catch (e: Exception) {
-                        println("解析版本 JSON 失败：${jsonFile.absolutePath}，错误：${e.message}")
+                        logger.error { "解析版本 JSON 失败：${jsonFile.absolutePath}，错误：${e.message}" }
                         null
                     }
                 } else null

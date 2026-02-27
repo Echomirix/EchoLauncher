@@ -25,7 +25,7 @@ import cn.echomirix.echolauncher.data.loaderSummary
  * 二级页面：针对某个 Minecraft 版本的“安装/下载选项”页面（Forge/Fabric/Quilt/NeoForge/OptiFine 等）
  * 注意：这是“栈页面”，不是 Tab 平级页面；所以不实现 IndexedScreen。
  */
-public class VersionInstallOptionsScreen(
+class VersionInstallOptionsScreen(
     private val version: Version
 ) : Screen {
 

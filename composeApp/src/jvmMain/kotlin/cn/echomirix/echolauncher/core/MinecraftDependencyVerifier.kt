@@ -1,6 +1,7 @@
 package cn.echomirix.echolauncher.core
 
 import cn.echomirix.echolauncher.util.*
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -28,10 +29,13 @@ class MinecraftDependencyVerifier(
     private val currentOsName: String = getCurrentOsName(),
     private val currentOsArch: String = getCurrentOsArch()
 ) {
+
+
+    private val logger = KotlinLogging.logger {}
     private val downloadDispatcher = Dispatchers.IO.limitedParallelism(16)
 
     suspend fun verifyAndDownloadAll() = coroutineScope {
-        println("[校验] 开始文件审查...")
+        logger.info { "开始文件审查..." }
 
         // 1. 校验游戏本体 (Client Jar)
         val clientUrl = versionMeta.model.downloads?.client?.url
@@ -57,7 +61,7 @@ class MinecraftDependencyVerifier(
                 targetFile.parentFile?.mkdirs()
 
                 if (!targetFile.exists()) {
-                    println("[下载] ${info.url}")
+                    logger.info { "下载 ${info.url}" }
                     libJobs.add(async(downloadDispatcher) {
                         downloadFile(info.url, targetFile)
                         info.verify(targetFile)
@@ -86,7 +90,8 @@ class MinecraftDependencyVerifier(
 
                             libJobs.add(async(downloadDispatcher) {
                                 // 记录下载前的状态
-                                val existedBefore = targetFile.exists() && calculateSha1(targetFile).equals(sha1Str, ignoreCase = true)
+                                val existedBefore =
+                                    targetFile.exists() && calculateSha1(targetFile).equals(sha1Str, ignoreCase = true)
 
                                 verifyOrDownloadFile(targetFile, urlStr, sha1Str, "Native库: $pathStr")
 
@@ -95,7 +100,7 @@ class MinecraftDependencyVerifier(
                                 val needsExtract = !existedBefore || (nativesDirFile.listFiles()?.isEmpty() != false)
 
                                 if (needsExtract) {
-                                    println("[解压] 正在释放 Native 库: ${targetFile.name}")
+                                    logger.info { "正在释放 Native 库: ${targetFile.name}" }
                                     extractNatives(targetFile, nativesDirFile)
                                 }
                             })
@@ -120,7 +125,7 @@ class MinecraftDependencyVerifier(
             verifyAndDownloadAssetsObjects(indexFile)
         }
 
-        println("[校验] 所有依赖准备就绪！允许放行！")
+        logger.info { "校验: 所有依赖准备就绪！允许放行！" }
     }
 
     private fun extractDownloadInfo(libObj: Library): DownloadInfo? {
@@ -181,7 +186,7 @@ class MinecraftDependencyVerifier(
                 }
             }
         } catch (e: Exception) {
-            println("[Native解压失败] ${jarFile.name} -> ${e.message}")
+            logger.error { "Native解压失败! ${jarFile.name} -> ${e.message}" }
         }
     }
 
@@ -207,7 +212,7 @@ class MinecraftDependencyVerifier(
                 verifyOrDownloadFile(targetFile, url, hash, "资产文件: $hash")
             })
         }
-        println("[校验] 正在审查 ${assetJobs.size} 个资产文件...")
+        logger.info { "校验: 正在审查 ${assetJobs.size} 个资产文件..." }
         assetJobs.awaitAll()
     }
 
@@ -217,10 +222,10 @@ class MinecraftDependencyVerifier(
             if (actualSha1.equals(expectedSha1, ignoreCase = true)) {
                 return
             } else {
-                println("[校验失败] $logName 文件损坏或被篡改，准备重新下载...")
+                logger.warn { "校验失败! $logName 文件损坏或被篡改，准备重新下载..." }
             }
         } else {
-            println("[发现缺失] $logName 不存在，准备下载...")
+            logger.info { "发现缺失! $logName 不存在，准备下载..." }
         }
 
         downloadFile(url, file)
