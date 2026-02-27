@@ -1,20 +1,22 @@
-package cn.echomirix.echolauncher.ui.Screen
+package cn.echomirix.echolauncher.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import cn.echomirix.echolauncher.core.config.ConfigManager
 import cn.echomirix.echolauncher.core.config.LocalAppConfig
 import cn.echomirix.echolauncher.ui.ColorSettingRow
-
+import cn.echomirix.echolauncher.ui.JavaSettingRow
 class SettingsScreen : TabScreen {
     override val index = 2
 
@@ -25,6 +27,19 @@ class SettingsScreen : TabScreen {
         var draftConfig by remember(appConfig) { mutableStateOf(appConfig.copy()) }
 
         val isModified = draftConfig != appConfig
+
+        val currentDraft by rememberUpdatedState(draftConfig)
+        val currentIsModified by rememberUpdatedState(isModified)
+
+        DisposableEffect(Unit) {
+            onDispose {
+                // 当此界面从导航栈中被移除或被其他 Tab 盖住（如果不再进行组合）时触发
+                if (currentIsModified) {
+                    println("[SettingsScreen] 检测到未保存的更改，离开页面时自动保存...")
+                    ConfigManager.updateConfig { currentDraft.copy() }
+                }
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -37,16 +52,6 @@ class SettingsScreen : TabScreen {
                 contentPadding = PaddingValues(bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 页面标题
-                item {
-                    Text(
-                        text = "全局设置",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-
                 // 1. 游戏运行设置
                 item {
                     Card(
@@ -97,6 +102,12 @@ class SettingsScreen : TabScreen {
                                     )
                                 }
                             }
+
+                            JavaSettingRow(
+                                draftConfig.javaPath,
+                                draftConfig.javaList,
+                                onJavaPathChange = { draftConfig = draftConfig.copy(javaPath = it) }
+                            )
                         }
                     }
                 }
@@ -136,24 +147,65 @@ class SettingsScreen : TabScreen {
 
             // 3. 只有当配置发生变化时，才显示悬浮保存按钮
             if (isModified) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        // 将草稿一次性覆盖到全局配置
-                        ConfigManager.updateConfig { draftConfig.copy() }
-                    },
+                var isHovered by remember { mutableStateOf(false) }
+
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(24.dp),
-                    icon = {
-                        Icon(
-                            Icons.Rounded.SystemUpdateAlt,
-                            contentDescription = "保存"
-                        )
-                    },
-                    text = { Text("保存修改") },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                        .padding(24.dp)
+                        // 检测鼠标悬停事件
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    when (event.type) {
+                                        androidx.compose.ui.input.pointer.PointerEventType.Enter -> isHovered = true
+                                        androidx.compose.ui.input.pointer.PointerEventType.Exit -> isHovered = false
+                                    }
+                                }
+                            }
+                        },
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // “撤销更改”按钮（仅在悬停时显示）
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isHovered,
+                        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it / 2 }),
+                        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it / 2 })
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = {
+                                // 撤销更改：将草稿恢复为与当前 appConfig 相同的状态
+                                draftConfig = appConfig.copy()
+                            },
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Restore,
+                                contentDescription = "撤销更改"
+                            )
+                        }
+                    }
+
+                    // “保存修改”主按钮
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            // 将草稿一次性覆盖到全局配置
+                            ConfigManager.updateConfig { draftConfig.copy() }
+                        },
+                        icon = {
+                            Icon(
+                                Icons.Rounded.SystemUpdateAlt,
+                                contentDescription = "保存"
+                            )
+                        },
+                        text = { Text("保存修改") },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
             }
         }
     }

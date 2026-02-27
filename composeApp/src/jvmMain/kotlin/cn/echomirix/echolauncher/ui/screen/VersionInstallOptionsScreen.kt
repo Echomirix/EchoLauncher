@@ -1,4 +1,4 @@
-package cn.echomirix.echolauncher.ui.Screen
+package cn.echomirix.echolauncher.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,17 +21,11 @@ import cn.echomirix.echolauncher.data.InstallOptions
 import cn.echomirix.echolauncher.data.enabledState
 import cn.echomirix.echolauncher.data.loaderSummary
 
-
-interface TabScreen : Screen {
-    val index: Int
-}
-
-
 /**
  * 二级页面：针对某个 Minecraft 版本的“安装/下载选项”页面（Forge/Fabric/Quilt/NeoForge/OptiFine 等）
  * 注意：这是“栈页面”，不是 Tab 平级页面；所以不实现 IndexedScreen。
  */
-class VersionInstallOptionsScreen(
+public class VersionInstallOptionsScreen(
     private val version: Version
 ) : Screen {
 
@@ -268,25 +262,6 @@ class VersionInstallOptionsScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-class AboutScreen : TabScreen {
-    override val index = 3
-
-    @Composable
-    override fun Content() {
-        val appConfig = LocalAppConfig.current
-        Box(
-            modifier = Modifier.fillMaxSize().background(Color(appConfig.subColor)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "关于界面正在开发中...",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
         }
     }
 }

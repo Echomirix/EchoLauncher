@@ -2,6 +2,7 @@ package cn.echomirix.echolauncher.core.config
 
 import androidx.compose.runtime.compositionLocalOf
 import cn.echomirix.echolauncher.core.account.AccountType
+import cn.echomirix.echolauncher.util.JavaInfo
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +32,9 @@ data class LauncherConfig(
     val accountType: AccountType = AccountType.OFFLINE,
     val primaryColor: Long = 0xFF6750A4,
     val subColor: Long = 0xFFFEF7F0,
-    val minecraftDir: String = File(System.getProperty("user.dir"), ".minecraft").absolutePath
+    val minecraftDir: String = File(System.getProperty("user.dir"), ".minecraft").absolutePath,
+    val javaPath: String = "",
+    val javaList : List<JavaInfo> = emptyList()
 )
 
 object ConfigManager {
@@ -62,7 +65,7 @@ object ConfigManager {
         if (configFile.exists()) {
             try {
                 config = json.decodeFromString(configFile.readText())
-                println("[Config] 成功读取本地配置！$config")
+                println("[Config] 成功读取本地配置！")
             } catch (e: Exception) {
                 println("[Config] 配置文件解析失败！复默认配置！异常: ${e.message}")
                 configScope.launch { save() }
@@ -89,7 +92,7 @@ object ConfigManager {
                         StandardCopyOption.ATOMIC_MOVE
                     )
                 } catch (e: Exception) {
-                    println("配置保存惨遭滑铁卢: ${e.message}")
+                    println("配置保存失败: ${e.message}")
                     e.printStackTrace()
                 }
             }

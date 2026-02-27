@@ -1,4 +1,4 @@
-package cn.echomirix.echolauncher.ui.Screen
+package cn.echomirix.echolauncher.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

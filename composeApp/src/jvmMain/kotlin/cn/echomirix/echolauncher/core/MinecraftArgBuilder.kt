@@ -13,6 +13,7 @@ data class LaunchContext(
     val authAccessToken: String,
     val version: String,          // 比如 "1.20.1"
     val minecraftDir: String,
+    val javaPath: String,
     val launcherName: String = AppConstant.APP_NAME,
     val launcherVersion: String = AppConstant.APP_VERSION,
     val osName: String = getCurrentOsName(),
@@ -90,7 +91,7 @@ class MinecraftArgBuilder(
         when {
             hasModernArgs -> {
                 // 现代版本 (1.13+)
-                val safeArgs = versionMeta.model.arguments ?: Arguments()
+                val safeArgs = versionMeta.model.arguments
                 jvmArgs.addAll(parseArgumentList(safeArgs.jvm))
                 gameArgs.addAll(parseArgumentList(safeArgs.game))
             }
@@ -125,15 +126,14 @@ class MinecraftArgBuilder(
             // 检查规则，不符合当前系统的库直接跳过
             if (!checkRules(lib.rules, isLibraryRule = true)) continue
 
-            // 注意：parseLibraryPath 需要兼容你目前的实现，这里假设你已经适配或者提供了一个扩展方法。
-            // 由于我们用的是强类型的 Library，获取 path 非常简单。
-            // 优先尝试获取 artifact 的 path，如果没有，可能需要通过 name 生成路径。
             val pathStr = lib.downloads?.artifact?.path
                 ?: cn.echomirix.echolauncher.util.parseLibraryPath(lib) // 假设你有一个根据 name 比如 org.ow2.asm:asm:9.9 推导路径的工具方法
 
             if (pathStr == null) continue
-
-            val absoluteLibFile = File(context.librariesDirectory, pathStr)
+            var absoluteLibFile : File
+            if (lib.natives == null) {
+               absoluteLibFile = File(context.librariesDirectory, pathStr)
+            } else {continue}
 
             if (!absoluteLibFile.exists()) {
                 println("[警告] 依赖库丢失，游戏可能会崩溃！缺失文件: ${absoluteLibFile.absolutePath}")

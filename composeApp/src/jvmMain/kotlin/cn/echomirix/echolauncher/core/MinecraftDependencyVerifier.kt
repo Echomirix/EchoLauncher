@@ -68,8 +68,9 @@ class MinecraftDependencyVerifier(
 
             // 【线路B】：挖掘并下载 Native 库
 
+            // 【线路B】：挖掘并下载 Native 库
             if (nativesObj != null) {
-                val rawClassifier = nativesObj.get(currentOsName)
+                val rawClassifier = nativesObj[currentOsName]
                 if (rawClassifier != null) {
                     val classifierKey = rawClassifier.replace($$"${arch}", if (currentOsArch == "x86") "32" else "64")
                     val classifierObj =
@@ -78,13 +79,25 @@ class MinecraftDependencyVerifier(
                     if (classifierObj != null) {
                         val pathStr = classifierObj["path"]?.jsonPrimitive?.content
                         val urlStr = classifierObj["url"]?.jsonPrimitive?.content
-                        println("[下载] Native库 (${classifierKey}): $urlStr")
                         val sha1Str = classifierObj["sha1"]?.jsonPrimitive?.content
+
                         if (pathStr != null && urlStr != null && sha1Str != null) {
                             val targetFile = File(librariesDirectory, pathStr)
+
                             libJobs.add(async(downloadDispatcher) {
+                                // 记录下载前的状态
+                                val existedBefore = targetFile.exists() && calculateSha1(targetFile).equals(sha1Str, ignoreCase = true)
+
                                 verifyOrDownloadFile(targetFile, urlStr, sha1Str, "Native库: $pathStr")
-                                extractNatives(targetFile, nativesDirFile)
+
+                                // 核心修复：如果文件以前不存在(或损坏被重新下载了)，才去执行暴力解压！
+                                // 或者 Natives 目录为空，也要强制解压一次（防止玩家手欠删了 natives 文件夹）
+                                val needsExtract = !existedBefore || (nativesDirFile.listFiles()?.isEmpty() != false)
+
+                                if (needsExtract) {
+                                    println("[解压] 正在释放 Native 库: ${targetFile.name}")
+                                    extractNatives(targetFile, nativesDirFile)
+                                }
                             })
                         }
                     }
@@ -114,7 +127,6 @@ class MinecraftDependencyVerifier(
         val artifactObj = libObj.downloads?.artifact
         val pathFromArtifact = artifactObj?.path
         val urlFromArtifact = artifactObj?.url
-        val nameStr = libObj.name
 
         // 先试标准 artifact
         if (pathFromArtifact != null && urlFromArtifact != null) {

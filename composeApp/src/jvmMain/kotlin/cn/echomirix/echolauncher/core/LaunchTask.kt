@@ -1,5 +1,7 @@
 package cn.echomirix.echolauncher.core
 
+import cn.echomirix.echolauncher.util.extractCrashDescription
+import cn.echomirix.echolauncher.util.findLatestCrashLog
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
@@ -9,7 +11,8 @@ enum class LaunchState {
     CHECKING,
     STARTING,
     SUCCESS,
-    ERROR
+    ERROR,
+    CRASHED
 }
 
 data class LaunchStatus(
@@ -31,6 +34,9 @@ class LaunchTask(val ctx: LaunchContext) {
     val logFlow: SharedFlow<String> = _logFlow.asSharedFlow()
     private var isLaunchConfirmed = false
 
+    @Volatile
+    private var isKilledByUser = false
+
     suspend fun start() = coroutineScope {
             try {
                 updateStatus(LaunchState.CHECKING, "正在扫描和补全依赖文件...")
@@ -51,7 +57,7 @@ class LaunchTask(val ctx: LaunchContext) {
                 updateStatus(LaunchState.STARTING, "依赖就绪，正在唤醒 JVM...")
 
                 val args = MinecraftArgBuilder(versionMeta, ctx).build()
-                val command = mutableListOf("java").apply { addAll(args) }
+                val command = mutableListOf("\"${ctx.javaPath}\"").apply { addAll(args) }
 
                 val process = ProcessBuilder(command)
                     .directory(File(ctx.gameDirectory))
@@ -70,7 +76,20 @@ class LaunchTask(val ctx: LaunchContext) {
 
                     val exitCode = process.waitFor()
                     activeProcess = null
-                    updateStatus(LaunchState.IDLE, "游戏已退出 (Exit Code: $exitCode)")
+                    if (exitCode != 0 && !isKilledByUser) {
+                        println("[崩溃检测] 游戏非正常退出 (Exit Code: $exitCode)")
+                        updateStatus(LaunchState.CRASHED, "游戏崩溃退出 ($exitCode)")
+
+                        // 去寻找最新的崩溃日志
+                        val logFile = findLatestCrashLog(File(ctx.gameDirectory))
+
+                        // 将崩溃信息转移到全局管理器中，这样即使本 Task 马上被销毁，UI也能弹窗
+                        val description = extractCrashDescription(logFile)
+                        LaunchManager.reportCrash(ctx.version, exitCode, description, logFile)
+                    } else {
+                        println("游戏已正常退出 (Exit Code: $exitCode)")
+                        updateStatus(LaunchState.IDLE, "游戏已退出 (Exit Code: $exitCode)")
+                    }
                 }
 
             } catch (e: Exception) {
@@ -119,6 +138,7 @@ class LaunchTask(val ctx: LaunchContext) {
     }
 
     fun stop() {
+        isKilledByUser = true // 标记为主动杀死，忽略崩溃警告
         activeProcess?.destroy()
     }
 
@@ -135,4 +155,6 @@ class LaunchTask(val ctx: LaunchContext) {
             }
         }
     }
+
+
 }

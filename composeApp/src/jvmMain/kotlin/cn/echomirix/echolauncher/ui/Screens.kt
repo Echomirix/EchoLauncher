@@ -7,11 +7,11 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import cafe.adriel.voyager.core.screen.Screen
-import cn.echomirix.echolauncher.ui.Screen.AboutScreen
-import cn.echomirix.echolauncher.ui.Screen.DownloadScreen
-import cn.echomirix.echolauncher.ui.Screen.HomeScreen
-import cn.echomirix.echolauncher.ui.Screen.SettingsScreen
 import cn.echomirix.echolauncher.ui.Screens.entries
+import cn.echomirix.echolauncher.ui.screen.AboutScreen
+import cn.echomirix.echolauncher.ui.screen.DownloadScreen
+import cn.echomirix.echolauncher.ui.screen.HomeScreen
+import cn.echomirix.echolauncher.ui.screen.SettingsScreen
 
 fun Screen.fromScreen(): Screens {
     return entries.find { it.screen::class == this::class } ?: Screens.UNKNOWN

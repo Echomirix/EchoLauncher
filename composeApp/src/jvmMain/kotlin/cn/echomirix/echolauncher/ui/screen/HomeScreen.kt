@@ -1,4 +1,4 @@
-package cn.echomirix.echolauncher.ui.Screen
+package cn.echomirix.echolauncher.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -71,7 +71,8 @@ class HomeScreen : TabScreen {
                 authUuid = "123e4567-e89b-12d3-a456-426614174000",
                 authAccessToken = "0",
                 version = selectedVersion?.id ?: "null",
-                minecraftDir = minecraftDir
+                minecraftDir = minecraftDir,
+                javaPath = appConfig.javaPath
             )
         }
 

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowScope
 import cafe.adriel.voyager.navigator.Navigator
@@ -26,11 +27,15 @@ import cn.echomirix.echolauncher.core.LaunchState
 import cn.echomirix.echolauncher.core.LaunchStatus
 import cn.echomirix.echolauncher.core.account.AccountType
 import cn.echomirix.echolauncher.core.config.AppConstant
+import cn.echomirix.echolauncher.core.config.ConfigManager
 import cn.echomirix.echolauncher.core.config.LauncherConfig
 import cn.echomirix.echolauncher.core.download.Version
 import cn.echomirix.echolauncher.core.version.LocalVersion
-import cn.echomirix.echolauncher.ui.Screen.TabScreen
-import cn.echomirix.echolauncher.ui.Screen.VersionInstallOptionsScreen
+import cn.echomirix.echolauncher.ui.screen.TabScreen
+import cn.echomirix.echolauncher.ui.screen.VersionInstallOptionsScreen
+import cn.echomirix.echolauncher.util.JavaDetector
+import cn.echomirix.echolauncher.util.JavaInfo
+import kotlinx.coroutines.launch
 
 
 @Composable
@@ -191,13 +196,13 @@ fun LaunchActionArea(
     ) { state ->
         when (state) {
             // 状态A：闲置或报错 (展示下拉框和启动按钮)
-            LaunchState.IDLE, LaunchState.ERROR -> {
+            LaunchState.IDLE, LaunchState.ERROR, LaunchState.CRASHED -> {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // 报错提示
-                    if (state == LaunchState.ERROR) {
+                    if (state == LaunchState.ERROR || state == LaunchState.CRASHED) {
                         Text(
                             text = launchStatus.text,
                             color = MaterialTheme.colorScheme.error,
@@ -563,6 +568,131 @@ fun ColorSettingRow(
                             it
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun JavaSettingRow(
+    currentJavaPath: String,
+    javaList: List<JavaInfo>,
+    onJavaPathChange: (String) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var isScanning by remember { mutableStateOf(false) }
+    var scannedJavas by remember { mutableStateOf(javaList) }
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Java 运行时环境",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 文本框 + 下拉菜单容器
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = currentJavaPath,
+                    onValueChange = onJavaPathChange, // 允许玩家手敲路径
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Java 路径 (java.exe)") },
+                    placeholder = { Text("留空将使用系统默认环境变量的 Java") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = { expanded = true }) {
+                            Icon(Icons.Rounded.ArrowDropDown, contentDescription = "选择 Java")
+                        }
+                    }
+                )
+
+                // 只有当有扫描结果时才渲染实际的菜单项
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.fillMaxWidth(0.5f).fillMaxHeight(0.5f) // 限制下最大宽度
+                ) {
+                    if (scannedJavas.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("没有扫描记录，请点击右侧按钮扫描", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            onClick = { expanded = false }
+                        )
+                    } else {
+                        // 添加一个置空选项
+                        DropdownMenuItem(
+                            text = { Text("使用系统默认 (留空)", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                onJavaPathChange("")
+                                expanded = false
+                            }
+                        )
+                        HorizontalDivider()
+
+                        scannedJavas.forEach { javaInfo ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(
+                                            text = "Java ${javaInfo.majorVersion} (${javaInfo.version}) ${if (javaInfo.is64Bit) "64-Bit" else "32-Bit"}",
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        Text(
+                                            text = javaInfo.path,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    onJavaPathChange(javaInfo.path)
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(16.dp))
+
+            // 扫描按钮
+            FilledTonalButton(
+                onClick = {
+                    if (!isScanning) {
+                        coroutineScope.launch {
+                            isScanning = true
+                            // 调用我们刚才写的探测器
+                            scannedJavas = JavaDetector.scanLocalJava()
+                            isScanning = false
+                            expanded = true // 扫描完自动展开下拉框展示结果
+                            ConfigManager.updateConfig { copy(javaList = scannedJavas)}
+
+                        }
+                    }
+                },
+                modifier = Modifier.height(56.dp) // 与文本框保持大致等高
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("扫描中...")
+                } else {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "扫描本地 Java")
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (scannedJavas.isEmpty()) "自动扫描" else "已找到 ${scannedJavas.size} 个")
                 }
             }
         }
