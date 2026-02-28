@@ -16,12 +16,15 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.*
+import kotlin.uuid.ExperimentalUuidApi
 
 
 val LocalAppConfig = compositionLocalOf<LauncherConfig> {
     throw IllegalStateException("LocalAppConfig not provided. Make sure to wrap your app with CompositionLocalProvider(LocalAppConfig provides appConfig).")
 }
 
+@OptIn(ExperimentalUuidApi::class)
 @Serializable
 data class LauncherConfig(
     val playerName: String = "DefaultPlayer",
@@ -29,6 +32,8 @@ data class LauncherConfig(
     val isIsolated: Boolean = true, // 是否开启版本隔离
     val customMinecraftDir: String? = null, // 可选的自定义 Minecraft 根
     val microsoftToken: String? = null, // 可选的微软登录 Token
+    val msRefreshToken: String? = null, // 可选的微软登录刷新 Token
+    val playerUuid: String = UUID.nameUUIDFromBytes(playerName.toByteArray()).toString(),
     val littleSkinToken: String? = null,
     val accountType: AccountType = AccountType.OFFLINE,
     val primaryColor: Long = 0xFF6750A4,
@@ -51,6 +56,7 @@ object ConfigManager {
         encodeDefaults = true
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     private val _configFlow = MutableStateFlow(LauncherConfig())
     val configFlow: StateFlow<LauncherConfig> = _configFlow.asStateFlow()
 

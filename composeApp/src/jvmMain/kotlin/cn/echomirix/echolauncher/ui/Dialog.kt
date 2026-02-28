@@ -11,7 +11,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cn.echomirix.echolauncher.core.LaunchManager
 import cn.echomirix.echolauncher.core.account.AccountType
+import cn.echomirix.echolauncher.core.account.microsoft.LocalAuthServer
+import cn.echomirix.echolauncher.core.account.microsoft.MicrosoftAuthService
+import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.LauncherConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ChangeAccountDialog(
@@ -22,6 +28,9 @@ fun ChangeAccountDialog(
     var tempName by remember { mutableStateOf(appConfig.playerName) }
     var tempType by remember { mutableStateOf(appConfig.accountType) }
     var accountMenuExpanded by remember { mutableStateOf(false) }
+    var isAuthenticating by remember { mutableStateOf(false) }
+    var isLoginException by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("账号切换与管理", fontWeight = FontWeight.Bold) },
@@ -31,7 +40,7 @@ fun ChangeAccountDialog(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = when (tempType) {
-                            AccountType.OFFLINE -> "离线模式"; AccountType.LITTLESKIN -> "LittleSkin (TODO)"; else -> "Microsoft (TODO)"
+                            AccountType.OFFLINE -> "离线模式"; AccountType.LITTLESKIN -> "LittleSkin (TODO)"; else -> "Microsoft"
                         },
                         onValueChange = {},
                         readOnly = true,
@@ -74,7 +83,46 @@ fun ChangeAccountDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                } else {
+                }
+                else if (tempType == AccountType.MICROSOFT) {
+                    var exception : Exception? by remember { mutableStateOf(null) }
+                    Button(
+                        onClick = {
+                            isAuthenticating = true
+                            coroutineScope.launch {
+                                try {
+                                    // 1. 启动本地服务器，调起浏览器，并等待玩家拖拽完成！
+                                    val code = withContext(Dispatchers.IO) {
+                                        LocalAuthServer.startAndGetCode()
+                                    }
+
+                                    // 2. 拿到 code 了，直接去请求微软服务器！
+                                    val profile = MicrosoftAuthService.authenticate(code, AppConstant.HttpClient)
+
+                                    println("登录成功：${profile.name}")
+                                    onDismiss() // 关闭弹窗
+
+                                } catch (e: Exception) {
+                                    isLoginException = true
+                                    exception = e
+                                    println("登录失败或取消: ${e.message}")
+                                } finally {
+                                    isAuthenticating = false
+                                }
+                            }
+                        },
+                        enabled = !isAuthenticating
+                    ) {
+                        Text(if (isAuthenticating) "请在浏览器中完成验证..." else "微软登录")
+                    }
+                    if (isLoginException) {
+                        Text(
+                            text = "微软登录失败，可能是登录过程中取消了授权，或者发生了网络异常。\n错误详情: ${exception?.message}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }else {
                     Text(
                         text = "该登录方式核心逻辑暂未实现，请切回离线模式！",
                         color = MaterialTheme.colorScheme.error,
@@ -84,9 +132,9 @@ fun ChangeAccountDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(tempName, tempType) }) {
-                Text("保存并使用")
-            }
+                Button(onClick = { onConfirm(tempName, tempType) }, enabled = tempType == AccountType.OFFLINE) {
+                    Text("保存并使用")
+                }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {

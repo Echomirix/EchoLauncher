@@ -27,6 +27,7 @@ kotlin {
             implementation(libs.kotlin.test)
         }
         jvmMain.dependencies {
+            val ktorVersion = "2.3.12"
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             // commonMain.dependencies 中：
@@ -34,10 +35,14 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
             // Ktor 网络库（下载和API请求）
-            implementation("io.ktor:ktor-client-core:2.3.9")
-            implementation("io.ktor:ktor-client-content-negotiation:2.3.9")
-            implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.9")
-            implementation("io.ktor:ktor-client-okhttp:2.3.9")
+            implementation("io.ktor:ktor-client-core:${ktorVersion}")
+            implementation("io.ktor:ktor-client-content-negotiation:${ktorVersion}")
+            implementation("io.ktor:ktor-serialization-kotlinx-json:${ktorVersion}")
+            implementation("io.ktor:ktor-client-okhttp:${ktorVersion}")
+// Server 端
+            implementation("io.ktor:ktor-server-core:${ktorVersion}")
+            implementation("io.ktor:ktor-server-netty:${ktorVersion}")
+
             // commonMain.dependencies 中：
             implementation("cafe.adriel.voyager:voyager-navigator:1.0.0")
             implementation("cafe.adriel.voyager:voyager-screenmodel:1.0.0")

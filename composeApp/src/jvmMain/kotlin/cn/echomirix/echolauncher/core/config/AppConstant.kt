@@ -1,5 +1,10 @@
 package cn.echomirix.echolauncher.core.config
 
+import io.ktor.client.*
+import io.ktor.client.engine.okhttp.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.serialization.json.Json
 import java.awt.Dimension
 
 object AppConstant {
@@ -23,4 +28,17 @@ object AppConstant {
     const val CARD_DEFAULT_PADDING_VERTICAL = 30
 
     const val VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+
+    val HttpClient = HttpClient(OkHttp) {
+        expectSuccess = false // 【确保这个是 false，或者干脆不写（默认是 false），这样我们才能手动抓取 400 的响应体】
+
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true // 必须开启！微软返回的 JSON 有很多乱七八糟我们不需要的字段
+                isLenient = true
+                encodeDefaults = true
+            })
+        }
+        // ...
+    }
 }

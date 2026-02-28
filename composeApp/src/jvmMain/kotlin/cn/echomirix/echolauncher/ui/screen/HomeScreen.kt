@@ -16,6 +16,7 @@ import cn.echomirix.echolauncher.core.LaunchManager
 import cn.echomirix.echolauncher.core.LaunchState
 import cn.echomirix.echolauncher.core.LaunchStatus
 import cn.echomirix.echolauncher.core.account.AccountType
+import cn.echomirix.echolauncher.core.account.microsoft.MicrosoftAuthService
 import cn.echomirix.echolauncher.core.config.AppConstant
 import cn.echomirix.echolauncher.core.config.ConfigManager
 import cn.echomirix.echolauncher.core.config.LocalAppConfig
@@ -24,8 +25,10 @@ import cn.echomirix.echolauncher.core.version.LocalVersionManager
 import cn.echomirix.echolauncher.ui.ChangeAccountDialog
 import cn.echomirix.echolauncher.ui.LaunchActionArea
 import cn.echomirix.echolauncher.ui.UserProfileCard
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class HomeScreen : TabScreen {
@@ -68,8 +71,8 @@ class HomeScreen : TabScreen {
         val ctx = remember(selectedVersion) {
             LaunchContext(
                 authPlayerName = appConfig.playerName,
-                authUuid = "123e4567-e89b-12d3-a456-426614174000",
-                authAccessToken = "0",
+                authUuid = appConfig.playerUuid,
+                authAccessToken = appConfig.microsoftToken?:"",
                 version = selectedVersion?.id ?: "null",
                 minecraftDir = minecraftDir,
                 javaPath = appConfig.javaPath
@@ -115,11 +118,34 @@ class HomeScreen : TabScreen {
                                 },
                                 launchStatus = currentVersionStatus,
                                 onLaunch = {
-                                    if (selectedVersion != null) {
-                                        // 调用新的 LaunchManager 启动游戏
+
+                                    if (appConfig.accountType == AccountType.MICROSOFT) {
+                                        // 先检查并在后台刷新一下
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            try {
+                                                // 如果有 refresh token，就静默刷新
+                                                appConfig.msRefreshToken?.let {
+                                                    if (it.isNotBlank()) {
+                                                        MicrosoftAuthService.refreshAndGetMcToken(
+                                                            appConfig.msRefreshToken,
+                                                            AppConstant.HttpClient
+                                                        )
+                                                    }
+                                                }
+
+                                                // 刷新成功，去调起真正的 LaunchTask (此时 Config 里的 mcToken 已经是全新的了)
+                                                LaunchManager.launch(ctx)
+
+                                            } catch (e: Exception) {
+                                                // 如果刷新失败（比如半年没玩过期了），弹窗让玩家重新扫码登录
+//                                                showMicrosoftLoginDialog = true
+                                            }
+                                        }
+                                    } else {
+                                        // 离线模式直接启动
                                         LaunchManager.launch(ctx)
                                     }
-                                },
+                                }
                             )
 
                         }
