@@ -18,7 +18,7 @@ object LocalAuthServer {
     suspend fun startAndGetCode(): String {
         codeDeferred = CompletableDeferred()
 
-        server = embeddedServer(Netty, port = 59125, host = "localhost") {
+        server = embeddedServer(Netty, port = 0, host = "localhost") {
             routing {
                 // 1. 本地引导页
                 get("/") {
@@ -66,7 +66,6 @@ object LocalAuthServer {
                                 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
                                 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
                                 
-                                // 核心：处理松开拖拽的瞬间
                                 dropZone.addEventListener('drop', (e) => {
                                     e.preventDefault();
                                     dropZone.classList.remove('dragover');
@@ -118,9 +117,9 @@ object LocalAuthServer {
                 }
             }
         }.start(wait = false)
-
-        // 自动用系统默认浏览器打开这个精美的本地引导页
-        Desktop.getDesktop().browse(URI("http://localhost:59125"))
+        val port = server?.resolvedConnectors()?.first()?.port
+            ?: throw RuntimeException("无法分配本地端口供验证服务器使用")
+        Desktop.getDesktop().browse(URI("http://localhost:$port"))
 
         // 挂起协程，死死等待网页端把 code 传回来
         return codeDeferred!!.await()

@@ -14,14 +14,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.net.URLDecoder
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * 提供微软账号认证服务
+ * 包括获取登录链接和执行完整验证流程
+ */
 object MicrosoftAuthService {
-    // 经典的 Minecraft Java 版客户端 ID
     private const val REDIRECT_URI = "https://login.live.com/oauth20_desktop.srf"
 
-    // 生成供玩家在浏览器中打开的登录链接
     fun getLoginUrl(): String {
         return "https://login.live.com/oauth20_authorize.srf" +
                 "?client_id=${MicrosoftClientId.MinecraftJava.id}" +
@@ -40,7 +43,8 @@ object MicrosoftAuthService {
         try {
             val rawCode = extractCode(authCode) ?: throw IllegalArgumentException("无法从输入中提取授权码(code)。")
 
-            val code = if (rawCode.contains("&")) rawCode.substringBefore("&") else rawCode
+            var code = if (rawCode.contains("&")) rawCode.substringBefore("&") else rawCode
+            code = URLDecoder.decode(code, "UTF-8")
             logger.info { "开始微软登录流程，提取纯净授权码: ${code.take(5)}***" }
 
             logger.info { "步骤 1/5: 获取微软 OAuth Token..." }
@@ -69,6 +73,13 @@ object MicrosoftAuthService {
         }
     }
 
+    /**
+     * 获取 Minecraft 访问令牌和玩家档案
+     *
+     * @param oauthResponse OAuth 响应对象，包含访问令牌等信息
+     * @param client HTTP 客户端用于发送请求
+     * @return 一对 McAuthResponse 和 McProfileResponse 对象
+     */
     suspend fun getMinecraftToken(oauthResponse: OAuthTokenResponse, client: HttpClient): Pair<McAuthResponse, McProfileResponse> {
         logger.info { "步骤 2/5: 验证 Xbox Live..." }
 //            logger.info { "body: ${Json.encodeToString(XblAuthRequest(XblProperties(RpsTicket = "d=${oauthResponse.accessToken}")))}" }
@@ -149,6 +160,13 @@ object MicrosoftAuthService {
     }
 
 
+    /**
+     * 刷新并获取微软令牌及玩家档案
+     *
+     * @param refreshToken 用于刷新的令牌
+     * @param client HTTP 客户端
+     * @return 玩家档案响应
+     */
     suspend fun refreshAndGetMcToken(refreshToken: String, client: HttpClient): McProfileResponse = withContext(Dispatchers.IO) {
         logger.info { "开始后台静默刷新微软 Token..." }
         try {
@@ -185,6 +203,12 @@ object MicrosoftAuthService {
         }
     }
 
+    /**
+     * 从输入字符串中提取code。
+     *
+     * @param input 输入的字符串，可能包含code或直接是code值。
+     * @return 提取出的code字符串，如果没有找到则返回null。
+     */
     private fun extractCode(input: String): String? {
         if (input.contains("code=")) {
             val regex = "code=([^&]+)".toRegex()

@@ -7,6 +7,24 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 
+/**
+ * 启动上下文数据类，包含启动 Minecraft 所需的所有参数。
+ *
+ * @property authPlayerName 玩家名称
+ * @property authUuid 玩家 UUID
+ * @property authAccessToken 认证访问令牌
+ * @property version Minecraft 版本号（如 "1.20.1"）
+ * @property minecraftDir Minecraft 根目录
+ * @property javaPath Java 可执行文件路径
+ * @property launcherName 启动器名称
+ * @property launcherVersion 启动器版本
+ * @property osName 当前操作系统名称
+ * @property osArch 当前操作系统架构
+ * @property features 特性映射（如是否为演示用户等）
+ * @property resolutionWidth 游戏窗口宽度
+ * @property resolutionHeight 游戏窗口高度
+ * @property isIsolated 是否启用版本隔离
+ */
 @Serializable
 data class LaunchContext(
     val authPlayerName: String,
@@ -27,18 +45,27 @@ data class LaunchContext(
     val resolutionHeight: String = "480",
     val isIsolated: Boolean = true, // 核心：默认开启版本隔离！
 ) {
+    /** 游戏目录路径，若启用隔离则为 versions/版本号 子目录 */
     val gameDirectory: String
         get() = if (isIsolated)
             File(minecraftDir, "versions/$version").absolutePath
         else
             File(minecraftDir).absolutePath
+
+    /** 资源文件根目录 */
     val assetsRoot: String get() = File(minecraftDir, "assets").absolutePath
+
+    /** 库文件目录 */
     val librariesDirectory: String get() = File(minecraftDir, "libraries").absolutePath
+
+    /** 原生库目录，若启用隔离则为版本专属目录 */
     val nativesDirectory: String
         get() = if (isIsolated) File(gameDirectory, "$version-natives").absolutePath else File(
             minecraftDir,
             "natives"
         ).absolutePath
+
+    /** 版本目录 */
     val versionsDirectory: String get() = File(minecraftDir, "versions").absolutePath
 
     override fun toString(): String {
@@ -46,22 +73,31 @@ data class LaunchContext(
     }
 }
 
+/**
+ * Minecraft 启动参数构建器，根据版本元数据和启动上下文生成启动参数列表。
+ *
+ * @property versionMeta Minecraft 版本元数据
+ * @property context 启动上下文
+ */
 class MinecraftArgBuilder(
     private val versionMeta: MinecraftVersionMeta,
     private val context: LaunchContext
 ) {
 
-
+    /** 日志记录器 */
     private val logger = KotlinLogging.logger {}
 
+    /** 资源索引名称，懒加载 */
     private val assetsIndexName: String by lazy {
         versionMeta.getAssetIndexId()
     }
 
+    /** 生成的 classpath，懒加载 */
     private val generatedClasspath: String by lazy {
         generateClasspath()
     }
 
+    /** 启动参数宏映射表，懒加载 */
     private val macroMap: Map<String, String> by lazy {
         mapOf(
             "\${auth_player_name}" to context.authPlayerName,
@@ -84,6 +120,10 @@ class MinecraftArgBuilder(
         )
     }
 
+    /**
+     * 构建启动参数列表。
+     * @return 启动参数字符串列表
+     */
     fun build(): List<String> {
         val hasLegacyArgs = !versionMeta.model.minecraftArguments.isNullOrBlank()
         val hasModernArgs = (versionMeta.model.arguments?.jvm?.isNotEmpty() == true) ||
@@ -123,6 +163,10 @@ class MinecraftArgBuilder(
         return jvmArgs + listOf(versionMeta.getMainClass()) + gameArgs
     }
 
+    /**
+     * 生成 classpath 路径字符串。
+     * @return classpath 路径
+     */
     private fun generateClasspath(): String {
         val classpathFiles = mutableListOf<String>()
 
@@ -157,6 +201,11 @@ class MinecraftArgBuilder(
         return classpathFiles.joinToString(File.pathSeparator)
     }
 
+    /**
+     * 解析参数列表，将宏替换为实际值。
+     * @param array 参数对象列表
+     * @return 解析后的参数字符串列表
+     */
     private fun parseArgumentList(array: List<Argument>): List<String> {
         val result = mutableListOf<String>()
 
@@ -188,8 +237,11 @@ class MinecraftArgBuilder(
         return result
     }
 
+
     /**
      * 校验规则列表
+     * @param rules 规则列表
+     * @param isLibraryRule 是否为库规则
      * @return true 表示规则允许应用该参数/库，false 表示拒绝
      */
     private fun checkRules(rules: List<Rule>?, isLibraryRule: Boolean = false): Boolean {
@@ -214,6 +266,9 @@ class MinecraftArgBuilder(
 
     /**
      * 判断单条规则是否匹配当前环境
+     * @param rule 规则对象
+     * @param isLibraryRule 是否为库规则
+     * @return 是否匹配
      */
     private fun matchRule(rule: Rule, isLibraryRule: Boolean): Boolean {
         // 1. 检查 OS
@@ -237,6 +292,11 @@ class MinecraftArgBuilder(
         return true
     }
 
+    /**
+     * 替换参数字符串中的宏为实际值。
+     * @param input 输入字符串
+     * @return 替换后的字符串
+     */
     private fun replaceMacros(input: String): String {
         var output = input
         for ((macro, value) in macroMap) {
@@ -248,6 +308,10 @@ class MinecraftArgBuilder(
 }
 
 // --- 辅助工具函数 ---
+/**
+ * 获取当前操作系统名称（windows、osx、linux、unknown）
+ * @return 操作系统名称字符串
+ */
 fun getCurrentOsName(): String {
     val os = System.getProperty("os.name").lowercase()
     return when {
@@ -258,6 +322,10 @@ fun getCurrentOsName(): String {
     }
 }
 
+/**
+ * 获取当前操作系统架构（如 x86、arm64 等）
+ * @return 操作系统架构字符串
+ */
 fun getCurrentOsArch(): String {
     val arch = System.getProperty("os.arch").lowercase()
     // 粗略判断，可根据实际需要精细化 (如区分 arm32 和 aarch64)

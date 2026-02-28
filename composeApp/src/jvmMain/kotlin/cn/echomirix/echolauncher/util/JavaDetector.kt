@@ -32,7 +32,8 @@ object JavaDetector {
     private val logger = KotlinLogging.logger {}
 
     /**
-     * 核心暴露方法：扫描本机所有有效的 Java 路径
+     * 扫描本地Java安装并返回信息列表
+     * @return Java安装信息列表，按版本从高到低排序
      */
     suspend fun scanLocalJava(): List<JavaInfo> = withContext(Dispatchers.IO) {
         val possiblePaths = mutableSetOf<File>()
@@ -64,9 +65,10 @@ object JavaDetector {
         possiblePaths.addAll(scanCommonDirectories())
 
         // 5. 将所有可能是 JavaHome 的目录，转换成它下面的 bin/java.exe 路径，并过滤存在的
-        val exeFiles = possiblePaths.map { File(it, "bin/${getJavaExecutableName()}") }
+        val exeFiles = possiblePaths.asSequence().map { File(it, "bin/${getJavaExecutableName()}") }
             .filter { it.exists() && it.isFile }
-            .distinctBy { it.absolutePath }
+            .distinctBy { it.absolutePath }.toList()
+
 
         // 6. 开启并发：对每一个 java.exe 执行 `java -version` 获取精确信息
         val deferredResults = exeFiles.map { javaExe ->
@@ -80,10 +82,18 @@ object JavaDetector {
             .sortedByDescending { it.majorVersion } // 按版本从高到低排序
     }
 
+    /**
+     * 获取Java可执行文件名
+     * @return Java可执行文件名称
+     */
     private fun getJavaExecutableName(): String {
         return if (System.getProperty("os.name").lowercase().contains("win")) "java.exe" else "java"
     }
 
+    /**
+     * 扫描常见目录以查找JDK安装路径。
+     * @return JDK安装目录列表
+     */
     private fun scanCommonDirectories(): List<File> {
         val dirs = mutableListOf<File>()
         val os = System.getProperty("os.name").lowercase()
@@ -126,7 +136,9 @@ object JavaDetector {
     }
 
     /**
-     * 调用 java.exe -version，解析返回的字符串
+     * 解析 Java 版本信息。
+     * @param javaPath Java 可执行文件路径
+     * @return Java 信息，包括版本和是否为64位，或null
      */
     private fun parseJavaVersion(javaPath: String): JavaInfo? {
         try {

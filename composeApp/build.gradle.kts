@@ -66,12 +66,13 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Exe)
             packageName = "cn.echomirix.echolauncher"
             packageVersion = "1.0.0"
+            modules("java.naming", "jdk.unsupported", "java.management")
         }
 
-        buildTypes.release.proguard {
+/*        buildTypes.release.proguard {
             // 让 ProGuard 读取刚才创建的规则文件
             configurationFiles.from(project.file("proguard-rules.pro"))
-        }
+        }*/
     }
 }
 

@@ -1,18 +1,32 @@
-# ------------------------------------------------------------------------
-# ProGuard 规则配置：忽略第三方库（OkHttp/Ktor/SLF4J等）中缺失的平台特有依赖
-# ------------------------------------------------------------------------
-
-# 忽略 OkHttp 在桌面端不需要的各种安全库和 Android 类警告
--dontwarn okhttp3.internal.platform.**
--dontwarn org.conscrypt.**
+# 1. 忽略找不到类的警告
+-dontwarn jakarta.servlet.**
+-dontwarn org.jboss.marshalling.**
+-dontwarn io.netty.**
+-dontwarn ch.qos.logback.**
+-dontwarn org.apache.commons.logging.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.apache.log4j.**
+-dontwarn com.aayushatharva.brotli4j.**
+-dontwarn com.jcraft.jzlib.**
+-dontwarn net.jpountz.**
+-dontwarn com.ning.compress.**
+-dontwarn lzma.sdk.**
+-dontwarn com.github.luben.zstd.**
+-dontwarn com.google.protobuf.**
+-dontwarn org.eclipse.jetty.npn.**
+-dontwarn reactor.blockhound.**
 -dontwarn org.bouncycastle.**
--dontwarn org.openjsse.**
--dontwarn android.**
--dontwarn dalvik.system.CloseGuard
+-dontwarn dalvik.system.**
+-dontwarn sun.security.**
 
-# 忽略 SLF4J 相关的警告（如果没有引入专门的 slf4j 实现）
--dontwarn org.slf4j.**
+# 2. 忽略重复类的警告
+-dontnote **
 
-# 忽略 Ktor 和 Coroutines 底层的警告
--dontwarn io.ktor.**
--dontwarn kotlinx.coroutines.internal.**
+# 3. 保护你的主类不被混淆掉
+#-keep class cn.echomirix.echolauncher.MainKt {
+#    public static void main(java.lang.String[]);
+#}
+
+# 4. 保护 Ktor / Compose 核心反射需要的类
+-keep class io.ktor.** { *; }
+-keep class kotlin.reflect.** { *; }

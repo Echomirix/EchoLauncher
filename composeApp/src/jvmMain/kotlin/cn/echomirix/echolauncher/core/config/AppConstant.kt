@@ -6,6 +6,7 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import java.awt.Dimension
+import java.util.concurrent.TimeUnit
 
 object AppConstant {
     const val APP_NAME = "EchoLauncher"
@@ -30,15 +31,20 @@ object AppConstant {
     const val VERSION_MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json"
 
     val HttpClient = HttpClient(OkHttp) {
-        expectSuccess = false // 【确保这个是 false，或者干脆不写（默认是 false），这样我们才能手动抓取 400 的响应体】
+        expectSuccess = false
 
         install(ContentNegotiation) {
             json(Json {
-                ignoreUnknownKeys = true // 必须开启！微软返回的 JSON 有很多乱七八糟我们不需要的字段
+                ignoreUnknownKeys = true
                 isLenient = true
                 encodeDefaults = true
             })
         }
-        // ...
+        engine {
+            config {
+                connectTimeout(15, TimeUnit.SECONDS)
+                readTimeout(30, TimeUnit.SECONDS)
+            }
+        }
     }
 }
